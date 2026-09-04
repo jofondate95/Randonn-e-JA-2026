@@ -1,0 +1,7 @@
+{
+  "name": "Randonnée 2026",
+  "description": "Plateforme officielle d'inscription et de gestion pour la Randonnée 2026 à la Forêt du Banco",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

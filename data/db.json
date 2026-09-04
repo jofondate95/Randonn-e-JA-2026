@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "momoNumber": "+225 07 58 42 10 90",
+    "momoRecipientName": "Comité Randonnée Banco 2026",
+    "paymentAmount": "5 000 FCFA",
+    "waveLink": "https://wave.com",
+    "orangeMoneyLink": "https://orange.ci",
+    "mtnMoMoLink": "https://mtn.ci",
+    "generalInstructions": "Veuillez effectuer votre paiement par Wave, Orange Money ou MTN MoMo vers le numéro ci-dessous avec votre Nom et Prénom en motif. Conservez la capture de confirmation pour la soumettre.",
+    "eventDate": "Dimanche 15 Novembre 2026",
+    "eventLocation": "Forêt du Banco, Abidjan",
+    "eventName": "Randonnée 2026"
+  },
+  "admins": [],
+  "registrations": [],
+  "drafts": {}
+}
