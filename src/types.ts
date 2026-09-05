@@ -52,16 +52,19 @@ export interface RegistrationRecord extends RegistrationFormData {
 }
 
 export interface PaymentSettings {
-  momoNumber: string;
-  momoRecipientName: string;
   paymentAmount: string;
   waveLink: string;
-  orangeMoneyLink: string;
-  mtnMoMoLink: string;
+  waveRecipientName?: string;
+  waveNumber?: string;
   generalInstructions: string;
   eventDate: string;
   eventLocation: string;
   eventName: string;
+  // Optional legacy fields for backward compatibility
+  momoNumber?: string;
+  momoRecipientName?: string;
+  orangeMoneyLink?: string;
+  mtnMoMoLink?: string;
 }
 
 export interface AdminUser {
@@ -70,6 +73,12 @@ export interface AdminUser {
   role: 'superadmin' | 'admin';
   createdAt: string;
   lastLogin?: string;
+}
+
+export interface AdminQuotaInfo {
+  currentCount: number;
+  maxCount: number;
+  canCreateAdmin: boolean;
 }
 
 export interface AutoSaveState {

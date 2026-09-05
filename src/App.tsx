@@ -6,6 +6,7 @@ import { PaymentStep } from './components/PaymentStep.js';
 import { ConfirmationView } from './components/ConfirmationView.js';
 import { AdminLoginModal } from './components/AdminLoginModal.js';
 import { AdminView } from './components/AdminView.js';
+import { ShareModal } from './components/ShareModal.js';
 import { Shield, Trees, Heart } from 'lucide-react';
 import {
   RegistrationFormData,
@@ -32,15 +33,22 @@ const DEFAULT_FORM_DATA: RegistrationFormData = {
   illnessDetails: '',
 };
 
+export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
+
+const STORAGE_ADMIN_TOKEN = 'randonnee_banco_admin_token_permanent';
+const STORAGE_ADMIN_USER = 'randonnee_banco_admin_user_permanent';
+
 const DEFAULT_SETTINGS: PaymentSettings = {
   momoNumber: '+225 07 58 42 10 90',
   momoRecipientName: 'Comité Randonnée Banco 2026',
-  paymentAmount: '5 000 FCFA',
-  waveLink: 'https://wave.com',
-  orangeMoneyLink: 'https://orange.ci',
-  mtnMoMoLink: 'https://mtn.ci',
+  paymentAmount: '5 050 FCFA',
+  waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
+  waveRecipientName: 'Comité Randonnée Banco 2026',
+  waveNumber: '+225 07 58 42 10 90',
+  orangeMoneyLink: '',
+  mtnMoMoLink: '',
   generalInstructions:
-    'Veuillez effectuer votre paiement par Wave, Orange Money ou MTN MoMo vers le numéro ci-dessous avec votre Nom et Prénom en motif. Conservez la capture de confirmation pour la soumettre.',
+    'Veuillez effectuer votre paiement exclusivement par Wave via le lien direct sécurisé ci-dessous. Conservez la capture d’écran de confirmation du transfert pour la soumettre.',
   eventDate: 'Dimanche 15 Novembre 2026',
   eventLocation: 'Forêt du Banco, Abidjan',
   eventName: 'Randonnée 2026',
@@ -65,6 +73,9 @@ export default function App() {
   const [adminToken, setAdminToken] = useState<string | null>(null);
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
 
+  // Share / Simplified Link state
+  const [showShareModal, setShowShareModal] = useState(false);
+
   // Track latest form data in ref for interval autosave
   const formDataRef = useRef(formData);
   const currentStepRef = useRef(currentStep);
@@ -76,6 +87,47 @@ export default function App() {
 
   // Initialize Session ID & Load Settings & Restore Progress
   useEffect(() => {
+    // Check URL for admin access or fresh form request
+    const pathname = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+    const isAdminRequested = pathname === '/admin' || searchParams.get('admin') === 'true';
+
+    if (searchParams.get('partager') === 'true' || searchParams.get('share') === 'true') {
+      setShowShareModal(true);
+    }
+
+    // Restore persistent admin session if available (Permanent login)
+    const savedAdminToken = localStorage.getItem(STORAGE_ADMIN_TOKEN);
+    if (savedAdminToken) {
+      fetch('/api/admin/me', {
+        headers: { Authorization: `Bearer ${savedAdminToken}` },
+      })
+        .then((res) => {
+          if (res.ok) return res.json();
+          throw new Error('Token expired or invalid');
+        })
+        .then((data) => {
+          if (data && data.user) {
+            setAdminToken(savedAdminToken);
+            setAdminUser(data.user);
+            if (isAdminRequested) {
+              setShowAdminDashboard(true);
+              setShowAdminLogin(false);
+            }
+          }
+        })
+        .catch(() => {
+          // Token expired or invalid, remove stale keys
+          localStorage.removeItem(STORAGE_ADMIN_TOKEN);
+          localStorage.removeItem(STORAGE_ADMIN_USER);
+          if (isAdminRequested) {
+            setShowAdminLogin(true);
+          }
+        });
+    } else if (isAdminRequested) {
+      setShowAdminLogin(true);
+    }
+
     let sid = localStorage.getItem(STORAGE_SESSION_KEY);
     if (!sid) {
       sid = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -273,8 +325,10 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Admin login handler
+  // Admin login handler (Persisted permanently in localStorage)
   const handleAdminLoginSuccess = (token: string, user: AdminUser) => {
+    localStorage.setItem(STORAGE_ADMIN_TOKEN, token);
+    localStorage.setItem(STORAGE_ADMIN_USER, JSON.stringify(user));
     setAdminToken(token);
     setAdminUser(user);
     setShowAdminLogin(false);
@@ -282,6 +336,8 @@ export default function App() {
   };
 
   const handleAdminLogout = () => {
+    localStorage.removeItem(STORAGE_ADMIN_TOKEN);
+    localStorage.removeItem(STORAGE_ADMIN_USER);
     setAdminToken(null);
     setAdminUser(null);
     setShowAdminDashboard(false);
@@ -290,7 +346,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-stone-50 text-stone-900 selection:bg-amber-700 selection:text-white">
       {/* Visual Nature Banner & Header */}
-      <Header />
+      <Header onShareClick={() => setShowShareModal(true)} />
 
       {/* Global Error Banner if any */}
       {globalError && (
@@ -323,6 +379,7 @@ export default function App() {
             onAutoSave={triggerAutoSave}
             lastSavedText={lastSavedText}
             isSaving={isSaving}
+            onShareClick={() => setShowShareModal(true)}
           />
         )}
 
@@ -387,6 +444,14 @@ export default function App() {
         onLoginSuccess={handleAdminLoginSuccess}
       />
 
+      {/* Share / Simplified Link Modal */}
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        eventName={settings.eventName}
+        eventDate={settings.eventDate}
+      />
+
       {/* Admin Dashboard Full Modal */}
       {showAdminDashboard && adminToken && adminUser && (
         <AdminView
@@ -394,6 +459,7 @@ export default function App() {
           currentUser={adminUser}
           onLogout={handleAdminLogout}
           onClose={() => setShowAdminDashboard(false)}
+          onSettingsUpdated={(newSettings) => setSettings(newSettings)}
         />
       )}
     </div>

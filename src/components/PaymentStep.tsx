@@ -1,7 +1,5 @@
 import React, { useState, useRef } from 'react';
 import {
-  Copy,
-  Check,
   ExternalLink,
   Upload,
   FileCheck,
@@ -15,6 +13,8 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { PaymentSettings, RegistrationRecord } from '../types.js';
+
+export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
 
 interface PaymentStepProps {
   settings: PaymentSettings;
@@ -33,7 +33,6 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
   onBackToForm,
   isSubmitting,
 }) => {
-  const [copied, setCopied] = useState(false);
   const [hasClickedPayment, setHasClickedPayment] = useState(registration.paymentClicked || false);
   const [isReadyToUpload, setIsReadyToUpload] = useState(registration.paymentClicked || false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -41,21 +40,20 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCopyNumber = () => {
-    navigator.clipboard.writeText(settings.momoNumber.replace(/\s+/g, ''));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
+  // Permanently wired to the official Wave payment link
+  const wavePaymentUrl = (settings.waveLink && settings.waveLink.trim() && settings.waveLink !== 'https://wave.com')
+    ? settings.waveLink.trim()
+    : PERMANENT_OFFICIAL_WAVE_LINK;
 
-  const handlePaymentLinkClick = async (url: string) => {
+  const waveRecipient = settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026';
+
+  const handlePaymentLinkClick = () => {
     setHasClickedPayment(true);
     setIsReadyToUpload(true);
-    try {
-      await onTrackPaymentClick();
-    } catch (e) {
+    // Track click asynchronously in background
+    onTrackPaymentClick().catch((e) => {
       console.error('Error tracking payment click', e);
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    });
   };
 
   const handleManualPaymentClick = async () => {
@@ -162,7 +160,7 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
         <div className="flex items-center gap-4">
           <div className="text-right">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#7a7a72]">Frais d'inscription</div>
-            <div className="text-lg font-serif italic font-bold text-[#D2691E]">{settings.paymentAmount || '5 000 FCFA'}</div>
+            <div className="text-lg font-serif italic font-bold text-[#D2691E]">{settings.paymentAmount || '5 050 FCFA'}</div>
           </div>
           <button
             onClick={onBackToForm}
@@ -176,112 +174,70 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
       {/* Main Payment Instructions Card */}
       <div className="bg-white/95 backdrop-blur-xs rounded-3xl border border-[#5A5A40]/20 shadow-sm p-6 sm:p-10 space-y-8">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#5A5A40]/10 text-[#5A5A40] border border-[#5A5A40]/15 mb-3">
-            <Smartphone className="w-3.5 h-3.5 text-[#D2691E]" />
-            <span>1. Transférer le montant</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-sky-100 text-sky-900 border border-sky-200 mb-3">
+            <Smartphone className="w-3.5 h-3.5 text-sky-600" />
+            <span>1. Paiement exclusif via Wave</span>
           </div>
           <h3 className="text-lg sm:text-xl font-serif italic font-bold text-[#5A5A40]">
-            Coordonnées du compte récepteur
+            Régler votre inscription par Wave
           </h3>
           <p className="text-xs sm:text-sm text-[#7a7a72] mt-1">
             {settings.generalInstructions ||
-              'Transférez les frais d’inscription vers le numéro officiel ci-dessous en précisant votre Nom & Prénoms en motif.'}
+              'Cliquez sur le lien direct Wave ci-dessous pour payer vos frais d’inscription en toute sécurité.'}
           </p>
         </div>
 
-        {/* Copyable Mobile Money Number Box */}
-        <div className="p-6 rounded-2xl bg-[#f5f2ed] border border-[#5A5A40]/20 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#7a7a72]">
-                Numéro Mobile Money Récepteur
-              </span>
-              <div className="text-2xl sm:text-3xl font-serif italic font-bold text-[#5A5A40] tracking-wide mt-1">
-                {settings.momoNumber}
+        {/* Dedicated Wave Payment Card */}
+        <div className="p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-sky-50 via-white to-sky-50/40 border-2 border-sky-200 shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-sky-100">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-[#1DC2EC] text-white flex items-center justify-center font-black text-xl shadow-md shadow-[#1DC2EC]/30 shrink-0">
+                W
               </div>
-              <div className="text-xs text-[#7a7a72] font-medium mt-1">
-                Bénéficiaire : <strong className="text-[#2d2d2a]">{settings.momoRecipientName}</strong>
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-800 mb-0.5">
+                  <span>Wave Côte d'Ivoire</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+                <div className="text-xs text-stone-600">
+                  Bénéficiaire officiel : <strong className="text-stone-900">{waveRecipient}</strong>
+                </div>
               </div>
             </div>
 
-            <button
-              onClick={handleCopyNumber}
-              className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full font-bold text-xs uppercase tracking-wider transition-all cursor-pointer ${
-                copied
-                  ? 'bg-[#5A5A40] text-white shadow-xs'
-                  : 'bg-white hover:bg-[#5A5A40] hover:text-white text-[#5A5A40] border-2 border-[#5A5A40] shadow-xs'
-              }`}
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4 text-white" />
-                  <span>Copié !</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>Copier le numéro</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Direct Payment Action Buttons */}
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#7a7a72] mb-3">
-            Ouvrir directement votre application de paiement :
+            <div className="text-left sm:text-right">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-800">
+                Montant à régler
+              </span>
+              <div className="text-2xl sm:text-3xl font-serif italic font-bold text-sky-950">
+                {settings.paymentAmount || '5 000 FCFA'}
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Wave Button */}
-            <button
-              onClick={() => handlePaymentLinkClick(settings.waveLink || 'https://wave.com')}
-              className="flex items-center justify-between p-3.5 rounded-xl bg-white hover:bg-sky-50/50 border border-sky-200 text-sky-950 transition-all cursor-pointer group"
+          {/* Primary Action: Direct Wave link click */}
+          <div className="space-y-4">
+            <a
+              href={wavePaymentUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handlePaymentLinkClick}
+              className="w-full py-4.5 px-6 rounded-2xl bg-[#1DC2EC] hover:bg-[#18add4] text-white font-bold text-base sm:text-lg flex items-center justify-center gap-3 shadow-lg shadow-[#1DC2EC]/35 transition-all transform active:scale-[0.99] cursor-pointer text-center no-underline"
             >
-              <div className="text-left">
-                <div className="text-xs font-black uppercase text-sky-700 tracking-wider">Wave CI</div>
-                <div className="text-xs font-semibold text-sky-900">Lien direct Wave</div>
-              </div>
-              <ExternalLink className="w-4 h-4 text-sky-600 group-hover:translate-x-0.5 transition-transform" />
-            </button>
+              <Smartphone className="w-6 h-6 shrink-0" />
+              <span>Payer avec Wave ({settings.paymentAmount || '5 050 FCFA'})</span>
+              <ExternalLink className="w-5 h-5 shrink-0" />
+            </a>
 
-            {/* Orange Money */}
-            <button
-              onClick={() => handlePaymentLinkClick(settings.orangeMoneyLink || 'https://orange.ci')}
-              className="flex items-center justify-between p-3.5 rounded-xl bg-white hover:bg-orange-50/50 border border-orange-200 text-orange-950 transition-all cursor-pointer group"
-            >
-              <div className="text-left">
-                <div className="text-xs font-black uppercase text-orange-700 tracking-wider">Orange Money</div>
-                <div className="text-xs font-semibold text-orange-900">Application Orange</div>
-              </div>
-              <ExternalLink className="w-4 h-4 text-orange-600 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-
-            {/* MTN MoMo */}
-            <button
-              onClick={() => handlePaymentLinkClick(settings.mtnMoMoLink || 'https://mtn.ci')}
-              className="flex items-center justify-between p-3.5 rounded-xl bg-white hover:bg-yellow-50/50 border border-yellow-300 text-yellow-950 transition-all cursor-pointer group"
-            >
-              <div className="text-left">
-                <div className="text-xs font-black uppercase text-yellow-800 tracking-wider">MTN MoMo</div>
-                <div className="text-xs font-semibold text-yellow-950">Application MTN</div>
-              </div>
-              <ExternalLink className="w-4 h-4 text-yellow-700 group-hover:translate-x-0.5 transition-transform" />
-            </button>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between gap-4 p-3 bg-[#f5f2ed] rounded-xl border border-[#5A5A40]/15">
-            <span className="text-xs text-[#7a7a72]">
-              Vous avez réglé via code USSD ou un autre guichet ?
-            </span>
-            <button
-              type="button"
-              onClick={handleManualPaymentClick}
-              className="shrink-0 text-xs font-bold uppercase tracking-wider text-[#D2691E] hover:underline cursor-pointer"
-            >
-              Continuer vers la preuve →
-            </button>
+            <div className="flex items-center justify-center pt-1">
+              <button
+                type="button"
+                onClick={handleManualPaymentClick}
+                className="text-xs sm:text-sm font-medium text-stone-500 hover:text-stone-800 underline decoration-stone-300 hover:decoration-stone-600 transition-colors cursor-pointer"
+              >
+                J'ai déjà effectué mon transfert sur Wave → Passer à la preuve
+              </button>
+            </div>
           </div>
         </div>
 
@@ -290,21 +246,21 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#5A5A40]/10 text-[#5A5A40] border border-[#5A5A40]/15">
               <FileCheck className="w-3.5 h-3.5 text-[#D2691E]" />
-              <span>2. Joindre la preuve de paiement</span>
+              <span>2. Joindre la capture de confirmation Wave</span>
             </div>
             {hasClickedPayment && (
-              <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Paiement initié
+              <span className="text-[11px] font-medium text-sky-700 flex items-center gap-1 font-semibold">
+                <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" /> Wave ouvert / Paiement initié
               </span>
             )}
           </div>
 
           <div>
             <h3 className="text-base sm:text-lg font-serif italic font-bold text-[#5A5A40]">
-              Preuve de transaction (capture d'écran ou reçu)
+              Preuve de paiement Wave (capture d'écran ou reçu)
             </h3>
             <p className="text-xs text-[#7a7a72] mt-0.5">
-              Joignez la capture d'écran du SMS de confirmation ou le reçu de paiement (JPG, PNG ou PDF, max 10 Mo).
+              Joignez la capture d'écran du reçu de transaction Wave (reçu vert ou SMS de confirmation Wave, format JPG, PNG ou PDF, max 10 Mo).
             </p>
           </div>
 

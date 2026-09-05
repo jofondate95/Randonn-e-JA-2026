@@ -12,6 +12,7 @@ import {
   Clock,
   Sparkles,
   Info,
+  Share2,
 } from 'lucide-react';
 import { RegistrationFormData, ClubType, TshirtSize } from '../types.js';
 
@@ -21,6 +22,7 @@ interface RegistrationFormProps {
   onAutoSave: (data: RegistrationFormData) => void;
   lastSavedText: string;
   isSaving: boolean;
+  onShareClick?: () => void;
 }
 
 const DISTRICT_OPTIONS = [
@@ -72,6 +74,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   onAutoSave,
   lastSavedText,
   isSaving,
+  onShareClick,
 }) => {
   const [formData, setFormData] = useState<RegistrationFormData>(initialData);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -201,7 +204,19 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          {onShareClick && (
+            <button
+              type="button"
+              onClick={onShareClick}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-[#5A5A40] hover:text-stone-900 bg-white hover:bg-stone-50 border border-[#5A5A40]/25 transition-all shadow-2xs cursor-pointer"
+              title="Obtenir le lien simplifié et QR Code du formulaire"
+            >
+              <Share2 className="w-3.5 h-3.5 text-[#D2691E]" />
+              <span className="hidden sm:inline">Lien simplifié</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-2 text-xs font-medium text-[#5A5A40] bg-white/80 px-3 py-1.5 rounded-full border border-[#5A5A40]/15">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[11px] font-medium">{lastSavedText}</span>
@@ -661,7 +676,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             type="submit"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-3 bg-[#5A5A40] text-white hover:bg-[#484833] rounded-full uppercase tracking-widest text-xs font-bold shadow-lg shadow-[#5A5A40]/25 px-8 sm:px-10 py-4 transition-all duration-200 active:scale-[0.99] cursor-pointer"
           >
-            <span>Continuer vers le paiement</span>
+            <span>Continuer vers le paiement Wave</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

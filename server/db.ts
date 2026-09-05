@@ -17,6 +17,8 @@ interface DatabaseSchema {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const DB_BACKUP_FILE = path.join(DATA_DIR, 'db.backup.json');
+const DB_ARCHIVE_FILE = path.join(DATA_DIR, 'db.permanent_archive.json');
 
 // Ensure directories exist
 if (!fs.existsSync(DATA_DIR)) {
@@ -26,44 +28,87 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
+
 const DEFAULT_SETTINGS: PaymentSettings = {
-  momoNumber: '+225 07 58 42 10 90',
-  momoRecipientName: 'Comité Randonnée Banco 2026',
-  paymentAmount: '5 000 FCFA',
-  waveLink: 'https://wave.com',
-  orangeMoneyLink: 'https://orange.ci',
-  mtnMoMoLink: 'https://mtn.ci',
-  generalInstructions: 'Veuillez effectuer votre paiement par Wave, Orange Money ou MTN MoMo vers le numéro ci-dessous avec votre Nom et Prénom en motif. Conservez la capture de confirmation pour la soumettre.',
+  paymentAmount: '5 050 FCFA',
+  waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
+  waveRecipientName: 'Comité Randonnée Banco 2026',
+  waveNumber: '+225 07 58 42 10 90',
+  generalInstructions: 'Veuillez effectuer votre paiement exclusivement par Wave via le lien sécurisé direct ci-dessous. Dès que votre transfert est effectué, importez la capture d’écran de confirmation Wave.',
   eventDate: 'Dimanche 15 Novembre 2026',
   eventLocation: 'Forêt du Banco, Abidjan',
   eventName: 'Randonnée 2026',
 };
 
+// Fallback seed admin (Super Admin jonatha2ngs@gmail.com) to guarantee zero admin loss
+const FALLBACK_SEED_ADMINS: StoredAdmin[] = [
+  {
+    id: 'admin-1788529425383',
+    email: 'jonatha2ngs@gmail.com',
+    role: 'superadmin',
+    passwordHash: '$2b$10$gyMhp44sFQVpKf.KDOSqPujc/p23/64CgK6Yfl7F5iwSyEC1Z1r82',
+    createdAt: '2026-09-04T13:43:45.383Z',
+  },
+];
+
+let inMemoryDbCache: DatabaseSchema | null = null;
+
 function readDb(): DatabaseSchema {
   try {
-    if (!fs.existsSync(DB_FILE)) {
+    let raw: string | null = null;
+
+    if (fs.existsSync(DB_FILE)) {
+      raw = fs.readFileSync(DB_FILE, 'utf-8');
+    } else if (fs.existsSync(DB_BACKUP_FILE)) {
+      console.warn('[DB] Restoring from backup file db.backup.json');
+      raw = fs.readFileSync(DB_BACKUP_FILE, 'utf-8');
+    } else if (fs.existsSync(DB_ARCHIVE_FILE)) {
+      console.warn('[DB] Restoring from archive file db.permanent_archive.json');
+      raw = fs.readFileSync(DB_ARCHIVE_FILE, 'utf-8');
+    }
+
+    if (!raw || !raw.trim()) {
+      if (inMemoryDbCache) {
+        return inMemoryDbCache;
+      }
       const initialDb: DatabaseSchema = {
         settings: DEFAULT_SETTINGS,
-        admins: [],
+        admins: FALLBACK_SEED_ADMINS,
         registrations: [],
         drafts: {},
       };
-      fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2), 'utf-8');
+      writeDb(initialDb);
+      inMemoryDbCache = initialDb;
       return initialDb;
     }
-    const raw = fs.readFileSync(DB_FILE, 'utf-8');
+
     const parsed = JSON.parse(raw);
-    return {
-      settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
-      admins: parsed.admins || [],
-      registrations: parsed.registrations || [],
-      drafts: parsed.drafts || {},
+    const resolvedAdmins = (parsed.admins && parsed.admins.length > 0) ? parsed.admins : (inMemoryDbCache?.admins?.length ? inMemoryDbCache.admins : FALLBACK_SEED_ADMINS);
+    const resolvedSettings = {
+      ...DEFAULT_SETTINGS,
+      ...(parsed.settings || {}),
+      // Guarantee official Wave link is active if empty or previously set to default generic wave.com
+      waveLink: (!parsed.settings?.waveLink || parsed.settings.waveLink === 'https://wave.com')
+        ? PERMANENT_OFFICIAL_WAVE_LINK
+        : parsed.settings.waveLink,
     };
+
+    const fullDb: DatabaseSchema = {
+      settings: resolvedSettings,
+      admins: resolvedAdmins,
+      registrations: parsed.registrations || inMemoryDbCache?.registrations || [],
+      drafts: parsed.drafts || inMemoryDbCache?.drafts || {},
+    };
+
+    inMemoryDbCache = fullDb;
+    return fullDb;
   } catch (error) {
-    console.error('Error reading db.json, returning default fallback', error);
+    console.error('Error reading db.json, returning resilient fallback', error);
+    if (inMemoryDbCache) return inMemoryDbCache;
     return {
       settings: DEFAULT_SETTINGS,
-      admins: [],
+      admins: FALLBACK_SEED_ADMINS,
       registrations: [],
       drafts: {},
     };
@@ -71,9 +116,23 @@ function readDb(): DatabaseSchema {
 }
 
 function writeDb(data: DatabaseSchema): void {
-  const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-  fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-  fs.renameSync(tempFile, DB_FILE);
+  inMemoryDbCache = data;
+  const payload = JSON.stringify(data, null, 2);
+
+  try {
+    // 1. Primary write via atomic replace
+    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
+    fs.writeFileSync(tempFile, payload, 'utf-8');
+    fs.renameSync(tempFile, DB_FILE);
+
+    // 2. Synchronous persistent backup write
+    fs.writeFileSync(DB_BACKUP_FILE, payload, 'utf-8');
+
+    // 3. Synchronous permanent archive write
+    fs.writeFileSync(DB_ARCHIVE_FILE, payload, 'utf-8');
+  } catch (err) {
+    console.error('[DB Write Error] Failed to write database files', err);
+  }
 }
 
 // Initial Admin Seed from ENV if provided
@@ -100,16 +159,27 @@ export function initializeAdminFromEnv(): void {
   }
 }
 
+const MAX_ADMINS = 2;
+
 export const dbService = {
   hasAdmins(): boolean {
     const db = readDb();
     return db.admins.length > 0;
   },
 
+  getAdminQuotaInfo(): { currentCount: number; maxCount: number; canCreateAdmin: boolean } {
+    const db = readDb();
+    return {
+      currentCount: db.admins.length,
+      maxCount: MAX_ADMINS,
+      canCreateAdmin: db.admins.length < MAX_ADMINS,
+    };
+  },
+
   createFirstAdmin(email: string, password: string): AdminUser {
     const db = readDb();
     if (db.admins.length > 0) {
-      throw new Error("L'administrateur initial a déjà été configuré.");
+      throw new Error("Le Super Administrateur a déjà été configuré.");
     }
     const salt = bcrypt.genSaltSync(10);
     const passwordHash = bcrypt.hashSync(password, salt);
@@ -131,6 +201,11 @@ export const dbService = {
       throw new Error('Permission refusée.');
     }
     const db = readDb();
+    if (db.admins.length >= MAX_ADMINS) {
+      throw new Error(
+        `Limite atteinte : Le quota maximal de ${MAX_ADMINS} administrateurs (1 Super Administrateur + 1 Administrateur) est déjà atteint. Aucune nouvelle inscription n'est autorisée.`
+      );
+    }
     const existing = db.admins.find((a) => a.email.toLowerCase() === email.toLowerCase().trim());
     if (existing) {
       throw new Error('Un compte administrateur avec cet email existe déjà.');
@@ -148,6 +223,26 @@ export const dbService = {
     writeDb(db);
     const { passwordHash: _, ...safeUser } = newAdmin;
     return safeUser;
+  },
+
+  deleteAdmin(adminId: string, requesterRole: string, requesterId: string): boolean {
+    if (requesterRole !== 'superadmin') {
+      throw new Error('Seul le Super Administrateur peut supprimer un compte administrateur.');
+    }
+    if (adminId === requesterId) {
+      throw new Error('Vous ne pouvez pas supprimer votre propre compte Super Administrateur.');
+    }
+    const db = readDb();
+    const target = db.admins.find((a) => a.id === adminId);
+    if (!target) {
+      throw new Error('Compte administrateur introuvable.');
+    }
+    if (target.role === 'superadmin') {
+      throw new Error('Le compte Super Administrateur ne peut pas être supprimé.');
+    }
+    db.admins = db.admins.filter((a) => a.id !== adminId);
+    writeDb(db);
+    return true;
   },
 
   changePassword(adminId: string, oldPassword: string, newPassword: string): boolean {
@@ -357,5 +452,67 @@ export const dbService = {
     record.updatedAt = new Date().toISOString();
     writeDb(db);
     return record;
+  },
+
+  deleteRegistration(id: string): boolean {
+    const db = readDb();
+    const index = db.registrations.findIndex((r) => r.id === id);
+    if (index === -1) return false;
+    const record = db.registrations[index];
+    if (record.proofFile?.filename) {
+      try {
+        const filePath = path.join(UPLOADS_DIR, record.proofFile.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (err) {
+        console.warn('Could not delete proof file', err);
+      }
+    }
+    db.registrations.splice(index, 1);
+    for (const [sId, draft] of Object.entries(db.drafts)) {
+      if (draft.registrationId === id) {
+        delete db.drafts[sId];
+      }
+    }
+    writeDb(db);
+    return true;
+  },
+
+  resetAllRegistrations(): { deletedCount: number } {
+    const db = readDb();
+    const count = db.registrations.length;
+    for (const r of db.registrations) {
+      if (r.proofFile?.filename) {
+        try {
+          const filePath = path.join(UPLOADS_DIR, r.proofFile.filename);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    db.registrations = [];
+    db.drafts = {};
+    writeDb(db);
+    return { deletedCount: count };
+  },
+
+  getDatabaseBackup(): DatabaseSchema {
+    return readDb();
+  },
+
+  restoreDatabaseBackup(backup: Partial<DatabaseSchema>): { success: boolean; message: string } {
+    const current = readDb();
+    const updated: DatabaseSchema = {
+      settings: { ...current.settings, ...(backup.settings || {}) },
+      admins: (backup.admins && backup.admins.length > 0) ? backup.admins as StoredAdmin[] : current.admins,
+      registrations: backup.registrations || current.registrations,
+      drafts: backup.drafts || current.drafts,
+    };
+    writeDb(updated);
+    return { success: true, message: 'Base de données restaurée avec succès.' };
   },
 };

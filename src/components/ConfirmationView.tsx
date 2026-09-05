@@ -74,7 +74,7 @@ export const ConfirmationView: React.FC<ConfirmationViewProps> = ({
           </h2>
 
           <p className="text-xs sm:text-sm text-[#7a7a72] max-w-xl mx-auto mt-1">
-            Votre preuve de paiement a été transmise à notre trésorerie. Dès validation du versement Mobile Money, votre badge officiel sera prêt.
+            Votre preuve de paiement a été transmise à notre trésorerie. Dès validation du versement Wave, votre badge officiel sera prêt.
           </p>
         </div>
 

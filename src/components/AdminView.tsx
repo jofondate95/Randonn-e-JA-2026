@@ -29,19 +29,29 @@ import {
   Printer,
   Lock,
   RefreshCw,
+  Share2,
+  Trash2,
+  RotateCcw,
+  AlertTriangle,
+  Database,
+  UploadCloud,
 } from 'lucide-react';
-import { AdminUser, RegistrationRecord, PaymentSettings, RegistrationStatus } from '../types.js';
+import { AdminUser, RegistrationRecord, PaymentSettings, RegistrationStatus, AdminQuotaInfo } from '../types.js';
+
+export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
 import {
   exportRegistrationsToExcel,
   exportRegistrationsToPDF,
   exportSingleParticipantPDF,
 } from '../utils/exportUtils.js';
+import { ShareModal } from './ShareModal.js';
 
 interface AdminViewProps {
   token: string;
   currentUser: AdminUser;
   onLogout: () => void;
   onClose: () => void;
+  onSettingsUpdated?: (settings: PaymentSettings) => void;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -49,6 +59,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   currentUser,
   onLogout,
   onClose,
+  onSettingsUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'inscrits' | 'relances' | 'settings' | 'admins'>('inscrits');
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
@@ -80,15 +91,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [newStatus, setNewStatus] = useState<'pending_verification' | 'confirmed' | 'rejected'>('pending_verification');
   const [adminNotes, setAdminNotes] = useState('');
 
+  // Single registration deletion state
+  const [deletingRegistration, setDeletingRegistration] = useState<RegistrationRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Reset all registrations & counters state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmCode, setResetConfirmCode] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  // Feedback notifications
+  const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
+
   // Payment Settings
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  // Admin management
+  // Admin management & Quota enforcement
   const [adminList, setAdminList] = useState<AdminUser[]>([]);
+  const [adminQuota, setAdminQuota] = useState<AdminQuotaInfo | null>(null);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newAdminTempPassword, setNewAdminTempPassword] = useState('');
   const [adminCreatedMsg, setAdminCreatedMsg] = useState<string | null>(null);
+  const [deletingAdminId, setDeletingAdminId] = useState<string | null>(null);
 
   // Change password
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -96,29 +121,74 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [pwdMsg, setPwdMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
-  // Inactivity Auto-logout (15 minutes of idle)
-  useEffect(() => {
-    let idleTimer: NodeJS.Timeout;
-    const resetTimer = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        alert('Session administrateur fermée suite à 15 minutes d’inactivité.');
-        onLogout();
-      }, 15 * 60 * 1000);
-    };
+  // Share simplified link modal
+  const [showShareModal, setShowShareModal] = useState(false);
 
-    window.addEventListener('mousemove', resetTimer);
-    window.addEventListener('keydown', resetTimer);
-    window.addEventListener('click', resetTimer);
-    resetTimer();
+  // Backup & Restore states
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [backupRestoreMsg, setBackupRestoreMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
-    return () => {
-      clearTimeout(idleTimer);
-      window.removeEventListener('mousemove', resetTimer);
-      window.removeEventListener('keydown', resetTimer);
-      window.removeEventListener('click', resetTimer);
-    };
-  }, [onLogout]);
+  // Handle download permanent JSON backup
+  const handleDownloadPermanentBackup = async () => {
+    setIsDownloadingBackup(true);
+    setBackupRestoreMsg(null);
+    try {
+      const res = await fetch('/api/admin/backup-download', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Échec du téléchargement');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sauvegarde-permanente-randonnee-banco-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setBackupRestoreMsg({ text: 'Sauvegarde permanente téléchargée avec succès.', isError: false });
+    } catch (err: any) {
+      setBackupRestoreMsg({ text: 'Erreur téléchargement : ' + err.message, isError: true });
+    } finally {
+      setIsDownloadingBackup(false);
+    }
+  };
+
+  // Handle restore from JSON backup file (Superadmin)
+  const handleRestoreBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm('Attention : restaurer une sauvegarde écrasera les données actuelles avec cette archive. Souhaitez-vous continuer ?')) {
+      e.target.value = '';
+      return;
+    }
+    setIsRestoringBackup(true);
+    setBackupRestoreMsg(null);
+    try {
+      const text = await file.text();
+      const backupData = JSON.parse(text);
+      const res = await fetch('/api/admin/backup-restore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ backupData }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur de restauration');
+      setBackupRestoreMsg({ text: 'Restauration réussie ! Les données ont été rétablies.', isError: false });
+      fetchRegistrations();
+      fetchSettings();
+      fetchAdmins();
+    } catch (err: any) {
+      setBackupRestoreMsg({ text: 'Erreur lors de la restauration : ' + err.message, isError: true });
+    } finally {
+      setIsRestoringBackup(false);
+      e.target.value = '';
+    }
+  };
 
   // Load Registrations
   const fetchRegistrations = useCallback(async () => {
@@ -164,7 +234,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   }, [token]);
 
-  // Fetch Admins
+  // Fetch Admins & Quota
   const fetchAdmins = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/list', {
@@ -173,6 +243,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
       if (res.ok) {
         const data = await res.json();
         setAdminList(data.admins || []);
+        if (data.quota) {
+          setAdminQuota(data.quota);
+        } else {
+          setAdminQuota({
+            currentCount: (data.admins || []).length,
+            maxCount: 2,
+            canCreateAdmin: (data.admins || []).length < 2,
+          });
+        }
       }
     } catch (err) {
       console.error(err);
@@ -188,7 +267,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (activeTab === 'admins') fetchAdmins();
   }, [activeTab, fetchSettings, fetchAdmins]);
 
-  // Save Settings
+  // Save Settings permanently
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings) return;
@@ -201,12 +280,73 @@ export const AdminView: React.FC<AdminViewProps> = ({
         },
         body: JSON.stringify(settings),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.settings) {
+        setSettings(data.settings);
+        if (onSettingsUpdated) {
+          onSettingsUpdated(data.settings);
+        }
         setSettingsSaved(true);
-        setTimeout(() => setSettingsSaved(false), 3000);
+        setActionSuccessMsg('Paramètres Wave enregistrés définitivement sur le serveur.');
+        setTimeout(() => {
+          setSettingsSaved(false);
+          setActionSuccessMsg(null);
+        }, 4000);
+      } else {
+        alert(data.error || 'Erreur lors de la sauvegarde');
       }
-    } catch (err) {
-      alert('Erreur lors de la sauvegarde');
+    } catch (err: any) {
+      alert('Erreur lors de la sauvegarde : ' + (err?.message || 'Erreur réseau'));
+    }
+  };
+
+  // Delete single registration
+  const handleDeleteRegistration = async (id: string) => {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/registrations/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
+      setDeletingRegistration(null);
+      if (editingRegistration?.id === id) {
+        setEditingRegistration(null);
+      }
+      setActionSuccessMsg('Inscription supprimée avec succès.');
+      setTimeout(() => setActionSuccessMsg(null), 4000);
+      fetchRegistrations();
+    } catch (err: any) {
+      alert('Erreur : ' + err.message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Reset all registrations and counters to zero
+  const handleResetAll = async () => {
+    setIsResetting(true);
+    try {
+      const res = await fetch('/api/admin/registrations/reset', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la réinitialisation');
+      setShowResetModal(false);
+      setResetConfirmCode('');
+      setActionSuccessMsg(`Compteurs réinitialisés à zéro avec succès (${data.deletedCount} inscription(s) effacée(s)).`);
+      setTimeout(() => setActionSuccessMsg(null), 5000);
+      fetchRegistrations();
+    } catch (err: any) {
+      alert('Erreur : ' + err.message);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -231,10 +371,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Create new Admin
+  // Create new Admin (Limit strictly enforced at max 2)
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminCreatedMsg(null);
+    if (adminList.length >= 2) {
+      alert("Le quota maximum de 2 administrateurs est déjà atteint. Aucune nouvelle inscription n'est possible.");
+      return;
+    }
     try {
       const res = await fetch('/api/admin/create', {
         method: 'POST',
@@ -245,13 +389,38 @@ export const AdminView: React.FC<AdminViewProps> = ({
         body: JSON.stringify({ email: newAdminEmail, tempPassword: newAdminTempPassword }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
-      setAdminCreatedMsg(`Compte créé avec succès pour ${newAdminEmail}`);
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la création');
+      setAdminCreatedMsg(`2ème compte administrateur créé avec succès pour ${newAdminEmail}. Le quota est désormais plein (2/2) et les inscriptions sont closes.`);
       setNewAdminEmail('');
       setNewAdminTempPassword('');
       fetchAdmins();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  // Delete Admin (Superadmin only, cannot delete superadmin)
+  const handleDeleteAdmin = async (adminId: string, email: string) => {
+    if (!window.confirm(`Confirmez-vous la suppression définitive du compte administrateur ${email} ?\n\nCette action libèrera la 2ème place pour permettre une nouvelle inscription si souhaité.`)) {
+      return;
+    }
+    setDeletingAdminId(adminId);
+    try {
+      const res = await fetch(`/api/admin/${adminId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
+      setActionSuccessMsg(`Compte administrateur ${email} révoqué. La 2ème place est à nouveau disponible.`);
+      setTimeout(() => setActionSuccessMsg(null), 5000);
+      fetchAdmins();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setDeletingAdminId(null);
     }
   };
 
@@ -382,6 +551,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
           {/* Quick Action Navigation */}
           <div className="flex items-center gap-2 sm:gap-3">
             <button
+              onClick={() => setShowShareModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#D2691E] hover:bg-[#b85816] text-white shadow-xs transition-all cursor-pointer"
+              title="Obtenir le lien simplifié et le QR code du formulaire pour diffusion"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Lien simplifié</span>
+            </button>
+
+            <button
               onClick={() => setShowPasswordModal(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/20 text-stone-200 border border-white/20 transition-colors cursor-pointer"
             >
@@ -471,7 +649,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 }`}
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>Config Paiements</span>
+                <span>Config Paiement Wave</span>
               </button>
 
               <button
@@ -520,6 +698,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <span>{exporting === 'pdf' ? 'Génération...' : 'PDF Officiel'}</span>
                 </button>
 
+                {/* Permanent Backup Download Button */}
+                <button
+                  onClick={handleDownloadPermanentBackup}
+                  disabled={isDownloadingBackup}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-800 hover:bg-amber-900 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  title="Sauvegarde permanente et indestructible de la base de données (JSON)"
+                >
+                  <Database className="w-3.5 h-3.5 text-amber-300" />
+                  <span>{isDownloadingBackup ? 'Sauvegarde...' : 'Sauvegarde JSON'}</span>
+                </button>
+
                 {/* Export Options modal button */}
                 <button
                   onClick={() => setShowExportModal(true)}
@@ -529,9 +718,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <Download className="w-3.5 h-3.5 text-[#D2691E]" />
                   <span>Options d'export...</span>
                 </button>
+
+                {/* Reset Counters to Zero Button */}
+                <button
+                  onClick={() => setShowResetModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all cursor-pointer shadow-2xs"
+                  title="Remise à zéro de tous les compteurs et inscriptions"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Réinitialiser à zéro</span>
+                </button>
               </div>
             )}
           </div>
+
+          {/* Action Success Toast / Banner */}
+          {actionSuccessMsg && (
+            <div className="mb-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{actionSuccessMsg}</span>
+              </div>
+              <button
+                onClick={() => setActionSuccessMsg(null)}
+                className="text-emerald-700 hover:text-emerald-900 p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* TAB 1: Inscrits Complets & TAB 2: Clics Paiement */}
           {(activeTab === 'inscrits' || activeTab === 'relances') && (
@@ -745,10 +960,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                     );
                                     setAdminNotes(item.adminNotes || '');
                                   }}
-                                  className="text-stone-400 hover:text-stone-800 p-1 hover:bg-stone-100 rounded-md"
+                                  className="text-stone-400 hover:text-stone-800 p-1 hover:bg-stone-100 rounded-md transition-colors cursor-pointer"
                                   title="Modifier le statut"
                                 >
                                   <Settings className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  onClick={() => setDeletingRegistration(item)}
+                                  className="text-stone-400 hover:text-rose-600 p-1 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Supprimer cette inscription"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
 
@@ -768,14 +991,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           )}
 
-          {/* TAB 3: Configuration des Paiements */}
+          {/* TAB 3: Configuration du paiement exclusif Wave */}
           {activeTab === 'settings' && settings && (
             <div className="flex-1 overflow-auto bg-white rounded-2xl border border-stone-200 shadow-xs p-6 sm:p-8 max-w-3xl">
               <div className="flex items-center justify-between pb-4 border-b border-stone-100 mb-6">
                 <div>
-                  <h3 className="text-base font-bold text-stone-900">Paramètres Mobile Money & Événement</h3>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-800 mb-1">
+                    <span>Moyen de paiement unique</span>
+                  </div>
+                  <h3 className="text-base font-bold text-stone-900">Configuration du Paiement Wave</h3>
                   <p className="text-xs text-stone-500">
-                    Modifiez le numéro de paiement et les liens sans toucher au code source.
+                    Renseignez le lien Wave officiel que les participants utiliseront pour payer leur inscription. Tous les autres moyens de paiement ont été désactivés.
                   </p>
                 </div>
                 {settingsSaved && (
@@ -785,29 +1011,60 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 )}
               </div>
 
-              <form onSubmit={handleSaveSettings} className="space-y-4">
+              <form onSubmit={handleSaveSettings} className="space-y-5">
+                {/* Wave Link Input - Highly prominent */}
+                <div className="p-4 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2">
+                  <label className="block text-xs font-bold text-sky-950 uppercase tracking-wider">
+                    Lien de paiement Wave officiel (Obligatoire)
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    placeholder="https://wave.com/m/M_... ou lien direct de paiement Wave"
+                    value={settings.waveLink}
+                    onChange={(e) => setSettings({ ...settings, waveLink: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-white border border-sky-300 rounded-xl text-xs font-mono text-sky-950 focus:ring-2 focus:ring-sky-400 focus:outline-none shadow-2xs"
+                  />
+                  <p className="text-[11px] text-sky-800">
+                    Ce lien sera le seul et unique moyen de paiement proposé aux participants. Le clic les redirigera directement sur l'application Wave.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-sky-200/60">
+                    <span className="text-[11px] font-mono text-sky-800 break-all">
+                      Lien officiel permanent : <strong className="text-sky-950">{PERMANENT_OFFICIAL_WAVE_LINK}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, waveLink: PERMANENT_OFFICIAL_WAVE_LINK, paymentAmount: '5 050 FCFA' })}
+                      className="text-[11px] font-bold text-sky-800 hover:text-sky-950 underline shrink-0 cursor-pointer"
+                    >
+                      Rétablir le lien officiel permanent
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Numéro Mobile Money (Affiché et copiable)
+                      Nom du titulaire / compte Wave
                     </label>
                     <input
                       type="text"
-                      value={settings.momoNumber}
-                      onChange={(e) => setSettings({ ...settings, momoNumber: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm font-mono text-stone-900 focus:ring-2 focus:ring-amber-200"
+                      value={settings.waveRecipientName || settings.momoRecipientName || ''}
+                      onChange={(e) => setSettings({ ...settings, waveRecipientName: e.target.value, momoRecipientName: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Nom du titulaire / compte récepteur
+                      Numéro Wave officiel (Affiché en complément)
                     </label>
                     <input
                       type="text"
-                      value={settings.momoRecipientName}
-                      onChange={(e) => setSettings({ ...settings, momoRecipientName: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm text-stone-900 focus:ring-2 focus:ring-amber-200"
+                      placeholder="+225 07 00 00 00 00"
+                      value={settings.waveNumber || settings.momoNumber || ''}
+                      onChange={(e) => setSettings({ ...settings, waveNumber: e.target.value, momoNumber: e.target.value })}
+                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-mono text-stone-900 focus:ring-2 focus:ring-amber-200"
                     />
                   </div>
                 </div>
@@ -820,51 +1077,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     type="text"
                     value={settings.paymentAmount}
                     onChange={(e) => setSettings({ ...settings, paymentAmount: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm text-stone-900 focus:ring-2 focus:ring-amber-200"
+                    className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
                   />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Lien direct Wave
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.waveLink}
-                      onChange={(e) => setSettings({ ...settings, waveLink: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Lien direct Orange Money
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.orangeMoneyLink}
-                      onChange={(e) => setSettings({ ...settings, orangeMoneyLink: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Lien direct MTN MoMo
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.mtnMoMoLink}
-                      onChange={(e) => setSettings({ ...settings, mtnMoMoLink: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                    Consignes de paiement aux participants
+                    Consignes de paiement Wave aux participants
                   </label>
                   <textarea
                     rows={3}
@@ -874,77 +1093,225 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   />
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-2">
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs bg-[#1DC2EC] hover:bg-[#18add4] text-white shadow-xs cursor-pointer transition-colors"
                   >
                     <Save className="w-4 h-4" />
-                    <span>Sauvegarder les paramètres</span>
+                    <span>Sauvegarder les paramètres Wave</span>
                   </button>
                 </div>
               </form>
+
+              {/* Permanent Archiving & Complete JSON Backup */}
+              <div className="mt-8 pt-6 border-t border-amber-200 bg-amber-50/60 rounded-2xl p-5 border">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
+                      <Database className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>Archivage Permanent & Sauvegarde pour Toujours</span>
+                    </h4>
+                    <p className="text-xs text-amber-900/80 mt-1 max-w-xl">
+                      Tous les enregistrements des administrations et participants sont automatiquement conservés sur le disque de façon permanente (redondance triple: fichier principal, sauvegarde synchrone et archive permanente). Vous pouvez aussi exporter ou restaurer manuellement l'archive complète.
+                    </p>
+                    {backupRestoreMsg && (
+                      <div className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg inline-block ${backupRestoreMsg.isError ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {backupRestoreMsg.text}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleDownloadPermanentBackup}
+                      disabled={isDownloadingBackup}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-800 hover:bg-amber-900 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{isDownloadingBackup ? 'Téléchargement...' : 'Télécharger l\'archive JSON'}</span>
+                    </button>
+
+                    {currentUser.role === 'superadmin' && (
+                      <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-amber-950 bg-amber-200/80 hover:bg-amber-300 shadow-xs cursor-pointer transition-colors">
+                        <UploadCloud className="w-3.5 h-3.5" />
+                        <span>{isRestoringBackup ? 'Restauration...' : 'Restaurer une archive'}</span>
+                        <input
+                          type="file"
+                          accept=".json"
+                          className="hidden"
+                          onChange={handleRestoreBackupFile}
+                          disabled={isRestoringBackup}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Maintenance & Reset Counters Section */}
+              <div className="mt-8 pt-6 border-t border-rose-100 bg-rose-50/50 rounded-2xl p-5 border border-rose-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-rose-950 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>Zone de maintenance & Remise à zéro des compteurs</span>
+                    </h4>
+                    <p className="text-xs text-rose-800/80 mt-1 max-w-xl">
+                      Cette option permet de purger toutes les inscriptions enregistrées et de réinitialiser tous les compteurs (inscrits, validés, montants) strictement à 0. Vos paramètres de paiement Wave et comptes administrateurs restent sauvegardés.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetModal(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-xs cursor-pointer shrink-0 transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Réinitialiser les compteurs à 0</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* TAB 4: Gestion des Administrateurs */}
+          {/* TAB 4: Gestion des Administrateurs & Quota 2 Admins */}
           {activeTab === 'admins' && (
             <div className="flex-1 overflow-auto space-y-6 max-w-4xl">
-              {/* Add Admin Account Form */}
-              <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-6">
-                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-stone-100">
-                  <UserPlus className="w-5 h-5 text-amber-700" />
-                  <div>
-                    <h3 className="text-sm font-bold text-stone-900">Créer un nouvel accès administrateur</h3>
-                    <p className="text-xs text-stone-500">Attribuez un email et un mot de passe temporaire.</p>
+              {/* Quota Status Banner */}
+              <div
+                className={`rounded-2xl border p-5 transition-all ${
+                  adminList.length >= 2
+                    ? 'bg-stone-900 text-white border-stone-800 shadow-md'
+                    : 'bg-amber-50/80 border-amber-200 text-amber-950 shadow-xs'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        adminList.length >= 2 ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-200 text-amber-800'
+                      }`}
+                    >
+                      {adminList.length >= 2 ? <Lock className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold">
+                          {adminList.length >= 2
+                            ? 'Quota d’administrateurs atteint (2 / 2)'
+                            : 'Politique d’accès : 2 administrateurs maximum autorisés'}
+                        </h4>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                            adminList.length >= 2
+                              ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                              : 'bg-amber-200/80 text-amber-900 border border-amber-300'
+                          }`}
+                        >
+                          {adminList.length} / 2 configuré{adminList.length > 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <p
+                        className={`text-xs mt-1 leading-relaxed max-w-2xl ${
+                          adminList.length >= 2 ? 'text-stone-300' : 'text-amber-800/90'
+                        }`}
+                      >
+                        {adminList.length >= 2
+                          ? 'Le Super Administrateur et le deuxième administrateur sont enregistrés. Les inscriptions de nouveaux administrateurs sont définitivement closes. Seule la connexion des administrateurs est autorisée.'
+                          : 'Après le Super Administrateur, seul un deuxième administrateur est autorisé dans le système. Dès l’inscription du deuxième, toute nouvelle inscription sera bloquée et seule la connexion sera permise.'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-
-                {adminCreatedMsg && (
-                  <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium">
-                    {adminCreatedMsg}
-                  </div>
-                )}
-
-                <form onSubmit={handleCreateAdmin} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <input
-                      type="email"
-                      required
-                      placeholder="Email du collègue..."
-                      value={newAdminEmail}
-                      onChange={(e) => setNewAdminEmail(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <input
-                      type="password"
-                      required
-                      minLength={8}
-                      placeholder="Mot de passe temporaire (min. 8 car.)"
-                      value={newAdminTempPassword}
-                      onChange={(e) => setNewAdminTempPassword(e.target.value)}
-                      className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <button
-                      type="submit"
-                      className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-stone-900 hover:bg-stone-800 text-white transition-colors cursor-pointer"
-                    >
-                      Ajouter l'administrateur
-                    </button>
-                  </div>
-                </form>
               </div>
+
+              {/* Add Admin Account Form OR Locked Message */}
+              {adminList.length < 2 ? (
+                <div className="bg-white rounded-2xl border border-stone-200 shadow-xs p-6">
+                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-stone-100">
+                    <UserPlus className="w-5 h-5 text-amber-700" />
+                    <div>
+                      <h3 className="text-sm font-bold text-stone-900">
+                        Inscrire le deuxième administrateur (Dernière place autorisée)
+                      </h3>
+                      <p className="text-xs text-stone-500">
+                        Attribuez un email et un mot de passe temporaire pour le 2ème administrateur.
+                      </p>
+                    </div>
+                  </div>
+
+                  {adminCreatedMsg && (
+                    <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium">
+                      {adminCreatedMsg}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleCreateAdmin} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
+                        Email du 2ème administrateur
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="admin2@organisation.ci"
+                        value={newAdminEmail}
+                        onChange={(e) => setNewAdminEmail(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-1">
+                        Mot de passe temporaire (min. 8 car.)
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        placeholder="••••••••"
+                        value={newAdminTempPassword}
+                        onChange={(e) => setNewAdminTempPassword(e.target.value)}
+                        className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
+                      />
+                    </div>
+
+                    <div className="flex items-end">
+                      <button
+                        type="submit"
+                        className="w-full py-2 px-4 rounded-xl text-xs font-bold bg-stone-900 hover:bg-stone-800 text-white transition-colors cursor-pointer"
+                      >
+                        Enregistrer le 2ème administrateur
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
+                <div className="bg-stone-50 rounded-2xl border border-stone-200 p-6 flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                  <div className="w-12 h-12 rounded-2xl bg-stone-200/80 text-stone-700 flex items-center justify-center shrink-0">
+                    <Lock className="w-6 h-6 text-stone-800" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-stone-900">
+                      Inscriptions de nouveaux administrateurs verrouillées
+                    </h4>
+                    <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                      Le quota maximal de 2 administrateurs (1 Super Administrateur + 1 Administrateur) est atteint. Aucune nouvelle inscription n'est autorisée. Seule la connexion des administrateurs est permise.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Admin Accounts Table */}
               <div className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
-                <div className="p-4 border-b border-stone-200 text-xs font-bold text-stone-700">
-                  Comptes administrateurs enregistrés
+                <div className="p-4 border-b border-stone-200 flex items-center justify-between">
+                  <div className="text-xs font-bold text-stone-700 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-stone-500" />
+                    <span>Comptes administrateurs enregistrés ({adminList.length} / 2)</span>
+                  </div>
+                  <span className="text-[11px] text-stone-500">
+                    {adminList.length >= 2 ? '🔒 Inscriptions closes' : '🔓 1 place restante'}
+                  </span>
                 </div>
                 <table className="w-full text-left text-xs">
                   <thead className="bg-stone-50 text-stone-500 uppercase text-[10px]">
@@ -953,32 +1320,72 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       <th className="py-2.5 px-4">Rôle</th>
                       <th className="py-2.5 px-4">Créé le</th>
                       <th className="py-2.5 px-4">Dernière connexion</th>
+                      <th className="py-2.5 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100">
-                    {adminList.map((admin) => (
-                      <tr key={admin.id} className="hover:bg-stone-50">
-                        <td className="py-3 px-4 font-semibold text-stone-900">{admin.email}</td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 text-stone-700">
-                            {admin.role}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-stone-500">
-                          {new Date(admin.createdAt).toLocaleDateString('fr-FR')}
-                        </td>
-                        <td className="py-3 px-4 text-stone-500">
-                          {admin.lastLogin
-                            ? new Date(admin.lastLogin).toLocaleDateString('fr-FR', {
-                                day: '2-digit',
-                                month: '2-digit',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : 'Jamais'}
-                        </td>
-                      </tr>
-                    ))}
+                    {adminList.map((admin) => {
+                      const isSuperAdmin = admin.role === 'superadmin';
+                      const canDelete = currentUser.role === 'superadmin' && !isSuperAdmin;
+
+                      return (
+                        <tr key={admin.id} className="hover:bg-stone-50">
+                          <td className="py-3 px-4 font-semibold text-stone-900">
+                            <div className="flex items-center gap-2">
+                              <span>{admin.email}</span>
+                              {admin.id === currentUser.id && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800">
+                                  Vous
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            {isSuperAdmin ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                <Shield className="w-3 h-3 text-amber-700" />
+                                <span>Super Administrateur</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-stone-100 text-stone-800 border border-stone-200">
+                                <span>2ème Administrateur</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-stone-500">
+                            {new Date(admin.createdAt).toLocaleDateString('fr-FR')}
+                          </td>
+                          <td className="py-3 px-4 text-stone-500">
+                            {admin.lastLogin
+                              ? new Date(admin.lastLogin).toLocaleDateString('fr-FR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : 'Jamais'}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {isSuperAdmin ? (
+                              <span className="text-[10px] text-stone-400 italic">Compte principal protégé</span>
+                            ) : canDelete ? (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAdmin(admin.id, admin.email)}
+                                disabled={deletingAdminId === admin.id}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
+                                title="Révoquer ce compte administrateur (libère la 2ème place)"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>{deletingAdminId === admin.id ? 'Suppression...' : 'Révoquer'}</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] text-stone-400">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1103,21 +1510,35 @@ export const AdminView: React.FC<AdminViewProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="flex items-center justify-between pt-2 border-t border-stone-100">
               <button
                 type="button"
-                onClick={() => setEditingRegistration(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100"
+                onClick={() => {
+                  setDeletingRegistration(editingRegistration);
+                  setEditingRegistration(null);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer"
               >
-                Annuler
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Supprimer</span>
               </button>
-              <button
-                type="button"
-                onClick={handleSaveStatus}
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-stone-900 text-white hover:bg-stone-800"
-              >
-                Enregistrer
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingRegistration(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveStatus}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-stone-900 text-white hover:bg-stone-800 cursor-pointer"
+                >
+                  Enregistrer
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1368,6 +1789,129 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Delete Single Registration Confirmation Modal */}
+      {deletingRegistration && (
+        <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 space-y-4 shadow-2xl border border-stone-200 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-stone-900">Supprimer l'inscription</h4>
+                <p className="text-xs text-stone-500">Action irréversible</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-700 leading-relaxed">
+              Êtes-vous sûr de vouloir supprimer définitivement l'inscription de{' '}
+              <strong className="text-stone-900 font-bold">{deletingRegistration.fullName}</strong>{' '}
+              (Réf : <span className="font-mono text-amber-800 font-bold">{deletingRegistration.id}</span>) ?
+            </p>
+
+            <div className="p-3 bg-stone-50 rounded-xl text-[11px] text-stone-600 space-y-1">
+              <div>• <strong>Contact :</strong> {deletingRegistration.contact}</div>
+              <div>• <strong>Club / Église :</strong> {deletingRegistration.club} - {deletingRegistration.church}</div>
+              <div>• Le fichier de preuve sera également effacé et les compteurs seront automatiquement recalculés.</div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setDeletingRegistration(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteRegistration(deletingRegistration.id)}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isDeleting ? 'Suppression...' : 'Confirmer la suppression'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset All Counters & Registrations Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-rose-200 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-stone-900">
+                  Réinitialiser les compteurs & inscriptions à zéro
+                </h4>
+                <p className="text-xs text-rose-700 font-medium mt-0.5">
+                  Action administrative — Remise à zéro complète
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-xs text-rose-950 leading-relaxed">
+              <p>
+                ⚠️ <strong>Attention :</strong> Cette opération va effacer <strong>l'ensemble des inscriptions</strong> (actuellement {stats.total} participant{stats.total > 1 ? 's' : ''}), supprimer tous les fichiers de preuve associés et remettre tous les compteurs (inscrits, validés, montants) strictement à <strong>zéro (0)</strong>.
+              </p>
+              <p className="text-[11px] text-rose-800">
+                Vos paramètres de paiement Wave et vos comptes administrateurs seront conservés.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-700 mb-1">
+                Pour confirmer la remise à zéro, veuillez saisir <span className="font-mono font-bold text-rose-600">ZERO</span> ci-dessous :
+              </label>
+              <input
+                type="text"
+                value={resetConfirmCode}
+                onChange={(e) => setResetConfirmCode(e.target.value.toUpperCase())}
+                placeholder="Tapez ZERO"
+                className="w-full px-3 py-2 text-xs font-mono font-bold border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-rose-500 uppercase tracking-widest"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowResetModal(false);
+                  setResetConfirmCode('');
+                }}
+                disabled={isResetting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleResetAll}
+                disabled={resetConfirmCode !== 'ZERO' || isResetting}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{isResetting ? 'Réinitialisation en cours...' : 'Remettre tous les compteurs à 0'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Share / Simplified Link Modal */}
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        eventName={settings?.eventName || 'Randonnée 2026'}
+        eventDate={settings?.eventDate || 'Dimanche 15 Novembre 2026'}
+      />
     </div>
   );
 };

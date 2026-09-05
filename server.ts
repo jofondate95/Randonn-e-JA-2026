@@ -80,20 +80,25 @@ function requireAdminAuth(req: AuthRequest, res: Response, next: NextFunction): 
 // PUBLIC REGISTRATION API
 // ==========================================
 
+const PERMANENT_OFFICIAL_WAVE_URL = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
+
 // Get public settings (payment details, event info)
 app.get('/api/settings', (_req: Request, res: Response) => {
   const settings = dbService.getSettings();
   res.json({
-    momoNumber: settings.momoNumber,
-    momoRecipientName: settings.momoRecipientName,
-    paymentAmount: settings.paymentAmount,
-    waveLink: settings.waveLink,
-    orangeMoneyLink: settings.orangeMoneyLink,
-    mtnMoMoLink: settings.mtnMoMoLink,
+    paymentAmount: settings.paymentAmount || '5 050 FCFA',
+    waveLink: (settings.waveLink && settings.waveLink !== 'https://wave.com') ? settings.waveLink : PERMANENT_OFFICIAL_WAVE_URL,
+    waveRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
+    waveNumber: settings.waveNumber || settings.momoNumber || '',
     generalInstructions: settings.generalInstructions,
     eventDate: settings.eventDate,
     eventLocation: settings.eventLocation,
     eventName: settings.eventName,
+    // Legacy fallback
+    momoNumber: settings.waveNumber || settings.momoNumber || '',
+    momoRecipientName: settings.waveRecipientName || settings.momoRecipientName || '',
+    orangeMoneyLink: '',
+    mtnMoMoLink: '',
   });
 });
 
@@ -247,10 +252,17 @@ app.get('/api/registration/status/:id', (req: Request, res: Response) => {
 // ADMIN API
 // ==========================================
 
-// Check if initial admin account exists
+// Check if initial admin account exists and quota info
 app.get('/api/admin/check-setup', (_req: Request, res: Response) => {
   const hasAdmin = dbService.hasAdmins();
-  res.json({ hasAdmin });
+  const quota = dbService.getAdminQuotaInfo();
+  res.json({
+    hasAdmin,
+    quota,
+    currentCount: quota.currentCount,
+    maxCount: quota.maxCount,
+    canCreateAdmin: quota.canCreateAdmin,
+  });
 });
 
 // Initial Setup (Only allowed if NO admins exist in database)
@@ -265,11 +277,11 @@ app.post('/api/admin/setup-initial', (req: Request, res: Response) => {
     const token = jwt.sign(
       { id: adminUser.id, email: adminUser.email, role: adminUser.role },
       JWT_SECRET,
-      { expiresIn: '8h' }
+      { expiresIn: '3650d' }
     );
     res.json({
       success: true,
-      message: 'Compte administrateur initial configuré avec succès.',
+      message: 'Compte Super Administrateur initial configuré avec succès.',
       token,
       user: adminUser,
     });
@@ -278,7 +290,7 @@ app.post('/api/admin/setup-initial', (req: Request, res: Response) => {
   }
 });
 
-// Admin Login
+// Admin Login (Permanent token 10 years / 3650 days)
 app.post('/api/admin/login', (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -293,7 +305,7 @@ app.post('/api/admin/login', (req: Request, res: Response) => {
   const token = jwt.sign(
     { id: adminUser.id, email: adminUser.email, role: adminUser.role },
     JWT_SECRET,
-    { expiresIn: '8h' }
+    { expiresIn: '3650d' }
   );
   res.json({
     success: true,
@@ -322,14 +334,24 @@ app.post('/api/admin/change-password', requireAdminAuth, (req: AuthRequest, res:
   }
 });
 
-// List Admin Accounts
+// List Admin Accounts + Quota
 app.get('/api/admin/list', requireAdminAuth, (_req: AuthRequest, res: Response) => {
   const admins = dbService.getAdmins();
-  res.json({ admins });
+  const quota = dbService.getAdminQuotaInfo();
+  res.json({ admins, quota });
 });
 
-// Create Admin Account (only logged-in admins can invite/create new admins)
+// Create Admin Account (Only permitted if less than 2 admins exist)
 app.post('/api/admin/create', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  const quota = dbService.getAdminQuotaInfo();
+  if (!quota.canCreateAdmin) {
+    res.status(403).json({
+      error:
+        "Limite atteinte : Le quota maximal de 2 administrateurs (Super Administrateur + 1 administrateur) est déjà atteint. Aucune nouvelle inscription n'est autorisée. Seule la connexion des administrateurs est désormais permise.",
+    });
+    return;
+  }
+
   const { email, tempPassword } = req.body;
   if (!email || !tempPassword || tempPassword.length < 8) {
     res.status(400).json({ error: 'Email valide et mot de passe temporaire (min. 8 car.) requis.' });
@@ -337,9 +359,26 @@ app.post('/api/admin/create', requireAdminAuth, (req: AuthRequest, res: Response
   }
   try {
     const newAdmin = dbService.createAdmin(email, tempPassword, req.adminUser!.role);
-    res.json({ success: true, user: newAdmin });
+    const updatedQuota = dbService.getAdminQuotaInfo();
+    res.json({ success: true, user: newAdmin, quota: updatedQuota });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Erreur lors de la création du compte admin.' });
+  }
+});
+
+// Delete Admin Account (Superadmin only, cannot delete superadmin)
+app.delete('/api/admin/:id', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  const targetId = req.params.id;
+  try {
+    dbService.deleteAdmin(targetId, req.adminUser!.role, req.adminUser!.id);
+    const quota = dbService.getAdminQuotaInfo();
+    res.json({
+      success: true,
+      message: 'Compte administrateur supprimé avec succès.',
+      quota,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la suppression du compte administrateur.' });
   }
 });
 
@@ -410,25 +449,101 @@ app.patch('/api/admin/registrations/:id', requireAdminAuth, (req: Request, res: 
   res.json({ success: true, registration: updated });
 });
 
+// Delete an individual registration
+app.delete('/api/admin/registrations/:id', requireAdminAuth, (req: Request, res: Response) => {
+  const deleted = dbService.deleteRegistration(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: 'Inscription introuvable ou déjà supprimée.' });
+    return;
+  }
+  res.json({ success: true, message: 'Inscription supprimée avec succès.' });
+});
+
+// Reset all registrations and counters to zero
+app.post('/api/admin/registrations/reset', requireAdminAuth, (_req: Request, res: Response) => {
+  const result = dbService.resetAllRegistrations();
+  res.json({
+    success: true,
+    deletedCount: result.deletedCount,
+    message: 'Toutes les inscriptions et compteurs ont été réinitialisés à zéro.',
+  });
+});
+
 // Get admin settings
 app.get('/api/admin/settings', requireAdminAuth, (_req: Request, res: Response) => {
   const settings = dbService.getSettings();
   res.json({ settings });
 });
 
-// Update admin settings (momo number, links, amounts)
+// Update admin settings (Wave link, amounts, recipient)
 app.put('/api/admin/settings', requireAdminAuth, (req: Request, res: Response) => {
-  const { momoNumber, momoRecipientName, paymentAmount, waveLink, orangeMoneyLink, mtnMoMoLink, generalInstructions } = req.body;
-  const updated = dbService.updateSettings({
+  const current = dbService.getSettings();
+  const {
+    waveLink,
+    waveRecipientName,
+    waveNumber,
+    paymentAmount,
+    generalInstructions,
     momoNumber,
     momoRecipientName,
-    paymentAmount,
-    waveLink,
-    orangeMoneyLink,
-    mtnMoMoLink,
-    generalInstructions,
+    eventName,
+    eventDate,
+    eventLocation,
+  } = req.body;
+
+  const updated = dbService.updateSettings({
+    waveLink: waveLink !== undefined ? String(waveLink).trim() : current.waveLink,
+    waveRecipientName: waveRecipientName !== undefined ? String(waveRecipientName).trim() : (momoRecipientName || current.waveRecipientName),
+    waveNumber: waveNumber !== undefined ? String(waveNumber).trim() : (momoNumber || current.waveNumber),
+    paymentAmount: paymentAmount !== undefined ? String(paymentAmount).trim() : current.paymentAmount,
+    generalInstructions: generalInstructions !== undefined ? String(generalInstructions).trim() : current.generalInstructions,
+    eventName: eventName !== undefined ? String(eventName).trim() : current.eventName,
+    eventDate: eventDate !== undefined ? String(eventDate).trim() : current.eventDate,
+    eventLocation: eventLocation !== undefined ? String(eventLocation).trim() : current.eventLocation,
+    // Sync legacy keys
+    momoNumber: waveNumber !== undefined ? String(waveNumber).trim() : (momoNumber || current.waveNumber),
+    momoRecipientName: waveRecipientName !== undefined ? String(waveRecipientName).trim() : (momoRecipientName || current.waveRecipientName),
+    orangeMoneyLink: '',
+    mtnMoMoLink: '',
   });
   res.json({ success: true, settings: updated });
+});
+
+// Full Database Backup Download (Permanent archives)
+app.get('/api/admin/backup-download', requireAdminAuth, (_req: AuthRequest, res: Response) => {
+  const fullBackup = dbService.getDatabaseBackup();
+  // Sanitize password hashes for safety in exported JSON
+  const safeData = {
+    ...fullBackup,
+    admins: fullBackup.admins.map(({ passwordHash: _, ...safe }) => safe),
+    exportedAt: new Date().toISOString(),
+    system: 'Randonnée Banco 2026 - Système Permanent d’Archivage',
+  };
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="sauvegarde-permanente-randonnee-banco-${new Date().toISOString().slice(0, 10)}.json"`
+  );
+  res.send(JSON.stringify(safeData, null, 2));
+});
+
+// Restore Database from JSON Backup (Superadmin only)
+app.post('/api/admin/backup-restore', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  if (req.adminUser?.role !== 'superadmin') {
+    res.status(403).json({ error: 'Seul le Super Administrateur peut restaurer une sauvegarde globale.' });
+    return;
+  }
+  const { backupData } = req.body;
+  if (!backupData || (!backupData.registrations && !backupData.settings)) {
+    res.status(400).json({ error: 'Format de fichier de sauvegarde invalide.' });
+    return;
+  }
+  try {
+    const result = dbService.restoreDatabaseBackup(backupData);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la restauration.' });
+  }
 });
 
 // Secure proof delivery (requires valid admin auth token in header or query)
@@ -580,6 +695,11 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(buffer);
+});
+
+// Friendly aliases for simplified form links
+app.get(['/inscription', '/banco2026', '/banco', '/formulaire'], (_req: Request, _res: Response, next) => {
+  next();
 });
 
 // ==========================================

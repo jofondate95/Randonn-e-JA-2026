@@ -14,6 +14,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   onLoginSuccess,
 }) => {
   const [hasAdmin, setHasAdmin] = useState<boolean | null>(null);
+  const [adminCount, setAdminCount] = useState<number>(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -32,6 +33,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       const res = await fetch('/api/admin/check-setup');
       const data = await res.json();
       setHasAdmin(data.hasAdmin);
+      setAdminCount(data.currentCount ?? (data.hasAdmin ? 1 : 0));
     } catch (e) {
       setHasAdmin(true); // Fallback to standard login
     }
@@ -118,13 +120,26 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             <Shield className="w-6 h-6 text-[#D2691E]" />
           </div>
           <h2 className="text-xl font-serif italic font-bold text-[#5A5A40]">
-            {hasAdmin === false ? 'Configuration Administrateur' : 'Espace Administrateur'}
+            {hasAdmin === false ? 'Configuration Super Administrateur' : 'Espace Administrateur'}
           </h2>
           <p className="text-xs text-[#7a7a72] mt-1">
             {hasAdmin === false
-              ? 'Aucun compte configuré. Créez le premier accès super-administrateur sécurisé.'
-              : 'Accès sécurisé réservé au comité d’organisation Randonnée 2026.'}
+              ? 'Aucun compte configuré. Enregistrez le Super Administrateur principal.'
+              : adminCount >= 2
+              ? 'Quota d’administrateurs atteint (2/2). Seule la connexion des administrateurs autorisés est permise.'
+              : 'Accès réservé aux administrateurs autorisés (1/2 configuré).'}
           </p>
+
+          {hasAdmin && (
+            <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#f5f2ed] border border-[#5A5A40]/20 text-[10px] font-semibold text-[#5A5A40]">
+              <Lock className="w-3 h-3 text-[#D2691E]" />
+              <span>
+                {adminCount >= 2
+                  ? 'Inscriptions closes • 2/2 administrateurs enregistrés'
+                  : '1 administrateur sur 2 configuré'}
+              </span>
+            </div>
+          )}
         </div>
 
         {error && (
