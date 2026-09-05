@@ -20,7 +20,7 @@ interface PaymentStepProps {
   settings: PaymentSettings;
   registration: RegistrationRecord;
   onTrackPaymentClick: () => Promise<void>;
-  onUploadProofAndSubmit: (file: File) => Promise<boolean>;
+  onUploadProofAndSubmit: (file: File, transactionPhone?: string) => Promise<boolean>;
   onBackToForm: () => void;
   isSubmitting: boolean;
 }
@@ -35,10 +35,14 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
 }) => {
   const [hasClickedPayment, setHasClickedPayment] = useState(registration.paymentClicked || false);
   const [isReadyToUpload, setIsReadyToUpload] = useState(registration.paymentClicked || false);
+  const [transactionPhone, setTransactionPhone] = useState(
+    registration.transactionPhone || registration.contact || ''
+  );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const phoneInputRef = useRef<HTMLInputElement>(null);
 
   // Permanently wired to the official Wave payment link
   const wavePaymentUrl = (settings.waveLink && settings.waveLink.trim() && settings.waveLink !== 'https://wave.com')
@@ -66,9 +70,24 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
     }
   };
 
+  const handleTriggerFileInput = () => {
+    if (!transactionPhone.trim()) {
+      setUploadError("Veuillez d'abord renseigner le numéro ayant servi à la transaction ci-dessus avant d'importer la preuve.");
+      phoneInputRef.current?.focus();
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!transactionPhone.trim()) {
+      setUploadError("Veuillez d'abord renseigner le numéro ayant servi à la transaction avant d'importer l'image.");
+      phoneInputRef.current?.focus();
+      return;
+    }
 
     // Validate size: max 10MB
     if (file.size > 10 * 1024 * 1024) {
@@ -106,12 +125,17 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
   };
 
   const handleFinalSubmit = async () => {
+    if (!transactionPhone.trim()) {
+      setUploadError('Veuillez renseigner le numéro ayant servi à la transaction Wave.');
+      phoneInputRef.current?.focus();
+      return;
+    }
     if (!selectedFile) {
       setUploadError('Veuillez joindre la capture ou photo de votre preuve de paiement avant de valider.');
       return;
     }
     setUploadError(null);
-    await onUploadProofAndSubmit(selectedFile);
+    await onUploadProofAndSubmit(selectedFile, transactionPhone.trim());
   };
 
   return (
@@ -264,12 +288,81 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
             </p>
           </div>
 
+          {/* Champ obligatoire : Numéro ayant servi à la transaction Wave */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#5A5A40]/25 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <label
+                htmlFor="transactionPhone"
+                className="text-xs font-bold uppercase tracking-wider text-[#5A5A40] flex items-center gap-2"
+              >
+                <Smartphone className="w-4 h-4 text-[#D2691E]" />
+                <span>Numéro ayant servi à la transaction (Obligatoire)</span>
+              </label>
+              <span className="text-[10px] font-bold text-[#D2691E] bg-[#D2691E]/10 border border-[#D2691E]/20 px-2.5 py-0.5 rounded-full self-start sm:self-auto">
+                À renseigner avant d'importer la preuve
+              </span>
+            </div>
+
+            <p className="text-xs text-[#7a7a72] leading-relaxed">
+              Veuillez renseigner ci-dessous le numéro de téléphone Wave depuis lequel le transfert de <strong>{settings.paymentAmount || '5 050 FCFA'}</strong> a été émis (votre numéro ou celui de la personne ayant payé pour vous).
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <div className="relative flex-1">
+                <input
+                  id="transactionPhone"
+                  ref={phoneInputRef}
+                  type="tel"
+                  required
+                  value={transactionPhone}
+                  onChange={(e) => {
+                    setTransactionPhone(e.target.value);
+                    if (uploadError && e.target.value.trim()) {
+                      setUploadError(null);
+                    }
+                  }}
+                  placeholder="Ex : 07 00 00 00 00 ou +225 05 00 00 00 00"
+                  className="w-full px-4 py-2.5 bg-[#f5f2ed]/40 border border-[#5A5A40]/30 rounded-xl text-xs sm:text-sm font-mono font-bold text-[#2d2d2a] focus:bg-white focus:ring-2 focus:ring-[#D2691E] focus:outline-none transition-all"
+                />
+              </div>
+
+              {registration.contact && registration.contact !== transactionPhone && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTransactionPhone(registration.contact);
+                    if (uploadError) setUploadError(null);
+                  }}
+                  className="px-3.5 py-2.5 text-xs font-bold text-[#5A5A40] hover:text-[#2d2d2a] bg-[#f5f2ed] hover:bg-[#eae5dc] border border-[#5A5A40]/20 rounded-xl transition-colors cursor-pointer shrink-0"
+                  title="Utiliser mon numéro de contact"
+                >
+                  Mon contact ({registration.contact})
+                </button>
+              )}
+            </div>
+
+            {transactionPhone.trim() ? (
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Numéro de transaction vérifié : <strong className="font-mono">{transactionPhone.trim()}</strong></span>
+              </div>
+            ) : (
+              <div className="text-[11px] text-[#D2691E] italic">
+                * Vous devez saisir ce numéro ci-dessus avant de pouvoir importer l'image de preuve.
+              </div>
+            )}
+          </div>
+
           {/* Upload Drop Zone / Picker */}
           {!selectedFile ? (
             <div
-              onClick={() => fileInputRef.current?.click()}
+              onClick={handleTriggerFileInput}
               className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all hover:border-[#D2691E] hover:bg-[#f5f2ed]/60 ${
-                uploadError ? 'border-red-400 bg-red-50/20' : 'border-[#5A5A40]/30 bg-[#f5f2ed]/40'
+                !transactionPhone.trim()
+                  ? 'border-stone-300 bg-stone-50/70 hover:border-amber-400'
+                  : uploadError
+                  ? 'border-red-400 bg-red-50/20'
+                  : 'border-[#5A5A40]/30 bg-[#f5f2ed]/40'
               }`}
             >
               <input
@@ -283,7 +376,9 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
                 <Upload className="w-5 h-5 text-[#D2691E]" />
               </div>
               <div className="text-sm font-bold text-[#2d2d2a]">
-                Cliquez pour importer votre capture ou déposez-la ici
+                {!transactionPhone.trim()
+                  ? "Saisissez d'abord le numéro de transaction ci-dessus pour importer la preuve"
+                  : 'Cliquez pour importer votre capture ou déposez-la ici'}
               </div>
               <div className="text-xs text-[#7a7a72] mt-1">Formats acceptés : JPG, PNG, WEBP ou PDF (max 10 Mo)</div>
             </div>

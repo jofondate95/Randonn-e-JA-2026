@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import * as XLSX from 'xlsx';
-import { dbService, initializeAdminFromEnv } from './server/db.js';
+import { dbService, initializeAdminFromEnv, DEFAULT_OFFICIAL_DISTRICTS } from './server/db.js';
 
 dotenv.config();
 
@@ -82,24 +82,31 @@ function requireAdminAuth(req: AuthRequest, res: Response, next: NextFunction): 
 
 const PERMANENT_OFFICIAL_WAVE_URL = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
 
-// Get public settings (payment details, event info)
+// Get public settings (payment details, event info, and dynamic form configuration)
 app.get('/api/settings', (_req: Request, res: Response) => {
   const settings = dbService.getSettings();
+  const formConfig = settings.formConfig || dbService.getFormConfig();
   res.json({
     paymentAmount: settings.paymentAmount || '5 050 FCFA',
     waveLink: (settings.waveLink && settings.waveLink !== 'https://wave.com') ? settings.waveLink : PERMANENT_OFFICIAL_WAVE_URL,
     waveRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
-    waveNumber: settings.waveNumber || settings.momoNumber || '',
+    waveNumber: settings.waveNumber || '+225 0769343626',
+    momoNumber: settings.momoNumber || '0769343626',
+    momoRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
     generalInstructions: settings.generalInstructions,
     eventDate: settings.eventDate,
     eventLocation: settings.eventLocation,
     eventName: settings.eventName,
-    // Legacy fallback
-    momoNumber: settings.waveNumber || settings.momoNumber || '',
-    momoRecipientName: settings.waveRecipientName || settings.momoRecipientName || '',
     orangeMoneyLink: '',
     mtnMoMoLink: '',
+    formConfig,
   });
+});
+
+// Public Dynamic Form CMS Configuration
+app.get('/api/form-config', (_req: Request, res: Response) => {
+  const formConfig = dbService.getFormConfig();
+  res.json({ config: formConfig });
 });
 
 // Autosave endpoint (saved every 2 minutes or on change)
@@ -206,6 +213,7 @@ app.post('/api/registration/track-payment-click', (req: Request, res: Response) 
 app.post('/api/registration/upload-proof', upload.single('proof'), (req: Request, res: Response) => {
   const file = req.file;
   const registrationId = req.body.registrationId;
+  const transactionPhone = req.body.transactionPhone;
 
   if (!file) {
     res.status(400).json({ error: 'Veuillez joindre une image ou capture de votre preuve de paiement.' });
@@ -225,7 +233,7 @@ app.post('/api/registration/upload-proof', upload.single('proof'), (req: Request
     size: file.size,
   };
 
-  const updated = dbService.attachProofAndSubmit(registrationId, fileMeta);
+  const updated = dbService.attachProofAndSubmit(registrationId, fileMeta, transactionPhone);
   if (!updated) {
     fs.unlinkSync(file.path);
     res.status(404).json({ error: 'Inscription non trouvée.' });
@@ -379,6 +387,63 @@ app.delete('/api/admin/:id', requireAdminAuth, (req: AuthRequest, res: Response)
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Erreur lors de la suppression du compte administrateur.' });
+  }
+});
+
+// Update Admin Account (Superadmin can edit any admin; Admin can edit own account)
+app.put('/api/admin/accounts/:id', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  const targetId = req.params.id;
+  const { email, password, role } = req.body;
+  try {
+    const updated = dbService.updateAdmin(
+      targetId,
+      { email, password, role },
+      req.adminUser!.role,
+      req.adminUser!.id
+    );
+    res.json({
+      success: true,
+      message: 'Compte administrateur mis à jour avec succès.',
+      user: updated,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la modification du compte.' });
+  }
+});
+
+// Get Form CMS Configuration (Admin)
+app.get('/api/admin/form-config', requireAdminAuth, (_req: AuthRequest, res: Response) => {
+  const config = dbService.getFormConfig();
+  res.json({ config });
+});
+
+// Update Form CMS Configuration (Admin)
+app.put('/api/admin/form-config', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  try {
+    const updatedConfig = dbService.updateFormConfig(req.body);
+    res.json({
+      success: true,
+      message: 'Configuration du formulaire mise à jour avec succès.',
+      config: updatedConfig,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la mise à jour de la configuration.' });
+  }
+});
+
+// Reset Districts to Official Default 13 Districts (Admin)
+app.post('/api/admin/form-config/reset-districts', requireAdminAuth, (_req: AuthRequest, res: Response) => {
+  try {
+    const updatedConfig = dbService.updateFormConfig({
+      districts: DEFAULT_OFFICIAL_DISTRICTS,
+    });
+    res.json({
+      success: true,
+      message: 'Liste des districts réinitialisée aux 13 districts officiels.',
+      config: updatedConfig,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la réinitialisation des districts.' });
   }
 });
 
@@ -543,6 +608,82 @@ app.post('/api/admin/backup-restore', requireAdminAuth, (req: AuthRequest, res: 
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Erreur lors de la restauration.' });
+  }
+});
+
+// Sync data from live published URL into current db.json before republishing
+app.post('/api/admin/sync-from-production', requireAdminAuth, async (req: AuthRequest, res: Response) => {
+  const { productionUrl, prodEmail, prodPassword, prodToken, secondAdminPassword } = req.body;
+  const targetUrl = (productionUrl || 'https://randonnee-ja-2026.ai.studio').replace(/\/+$/, '');
+
+  let authToken = prodToken;
+
+  if (!authToken) {
+    if (!prodEmail || !prodPassword) {
+      res.status(400).json({ error: 'Email et mot de passe de la version publiée requis pour la synchronisation.' });
+      return;
+    }
+    try {
+      const loginRes = await fetch(`${targetUrl}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: prodEmail, password: prodPassword }),
+      });
+      const loginData: any = await loginRes.json();
+      if (!loginRes.ok || !loginData.token) {
+        res.status(401).json({ error: loginData.error || 'Échec de connexion au site publié. Vérifiez vos identifiants.' });
+        return;
+      }
+      authToken = loginData.token;
+    } catch (err: any) {
+      res.status(502).json({ error: 'Impossible de joindre le site en ligne : ' + err.message });
+      return;
+    }
+  }
+
+  try {
+    // 1. Fetch live registrations
+    const regRes = await fetch(`${targetUrl}/api/admin/registrations`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!regRes.ok) {
+      res.status(502).json({ error: 'Impossible de récupérer les inscriptions depuis le site en ligne.' });
+      return;
+    }
+    const regData: any = await regRes.json();
+    const liveRegistrations = regData.registrations || [];
+
+    // 2. Fetch live admins
+    const adminRes = await fetch(`${targetUrl}/api/admin/list`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    let liveAdmins: any[] = [];
+    if (adminRes.ok) {
+      const adminData: any = await adminRes.json();
+      liveAdmins = adminData.admins || [];
+    }
+
+    // 3. Fetch live settings
+    const setRes = await fetch(`${targetUrl}/api/settings`);
+    let liveSettings: any = {};
+    if (setRes.ok) {
+      liveSettings = await setRes.json();
+    }
+
+    const syncResult = dbService.syncFromProductionData({
+      registrations: liveRegistrations,
+      admins: liveAdmins,
+      settings: liveSettings,
+      secondAdminPassword,
+    });
+
+    res.json({
+      success: true,
+      message: `Synchronisation réussie ! ${syncResult.syncedRegistrationsCount} inscriptions et ${syncResult.syncedAdminsCount} administrateurs ont été importés dans votre espace de travail. Vous pouvez maintenant republier sans rien perdre.`,
+      result: syncResult,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Erreur lors de la synchronisation : ' + err.message });
   }
 });
 

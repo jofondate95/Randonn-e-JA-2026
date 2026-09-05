@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
-import { RegistrationRecord, PaymentSettings, AdminUser } from '../src/types.js';
+import { RegistrationRecord, PaymentSettings, AdminUser, FormConfig } from '../src/types.js';
 
 interface StoredAdmin extends AdminUser {
   passwordHash: string;
@@ -29,19 +29,68 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
+export const PERMANENT_PAYMENT_NUMBER = '0769343626';
+export const PERMANENT_PAYMENT_NUMBER_INTL = '+225 0769343626';
+
+export const DEFAULT_OFFICIAL_DISTRICTS: string[] = [
+  'District du Phare',
+  'District 2',
+  'District 3',
+  'District 4',
+  'District 5',
+  'District de la Me (Adzope)',
+  'District d’Agboville',
+  'District de Bonoua',
+  'District de Songon',
+  'District de Pole Maritime',
+  'District d’Aboisso',
+  'District d’Abengourou',
+  'District KM 17',
+  'Autre',
+];
+
+export const DEFAULT_FORM_CONFIG: FormConfig = {
+  districts: DEFAULT_OFFICIAL_DISTRICTS,
+  tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Sur-mesure', 'Autre'],
+  clubs: [
+    { id: 'Aventurier', label: 'Aventurier', desc: '6 à 9 ans' },
+    { id: 'Éclaireur', label: 'Éclaireur', desc: '10 à 15 ans' },
+    { id: 'Ambassadeur', label: 'Ambassadeur', desc: '16 à 21 ans' },
+    { id: 'Aîné', label: 'Aîné', desc: 'Jeunes Adultes' },
+    { id: 'Chef Guide', label: 'Chef Guide', desc: 'Cadres & Formateurs' },
+    { id: 'Leader de Jeunesse', label: 'Leader de Jeunesse', desc: 'Responsables' },
+    { id: 'Autre', label: 'Autre', desc: 'Sympathisant / Invité' },
+  ],
+  churches: [
+    'Temple du Jubilé (Cocody)',
+    'Béthel (Yopougon)',
+    'Maranatha (Treichville)',
+    'Philadelphie (Abobo)',
+    'Salem (Port-Bouët)',
+  ],
+  requireTshirt: true,
+  enableIllnessField: true,
+  bannerNotice: '',
+  formTitle: 'Inscription Officielle - Randonnée 2026',
+  formSubtitle: 'Forêt du Banco • Dimanche 15 Novembre 2026',
+  termsNotice: 'En vous inscrivant, vous attestez être médicalement apte à participer à la randonnée en milieu naturel.',
+};
 
 const DEFAULT_SETTINGS: PaymentSettings = {
   paymentAmount: '5 050 FCFA',
   waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
   waveRecipientName: 'Comité Randonnée Banco 2026',
-  waveNumber: '+225 07 58 42 10 90',
+  waveNumber: PERMANENT_PAYMENT_NUMBER_INTL,
+  momoNumber: PERMANENT_PAYMENT_NUMBER,
+  momoRecipientName: 'Comité Randonnée Banco 2026',
   generalInstructions: 'Veuillez effectuer votre paiement exclusivement par Wave via le lien sécurisé direct ci-dessous. Dès que votre transfert est effectué, importez la capture d’écran de confirmation Wave.',
   eventDate: 'Dimanche 15 Novembre 2026',
   eventLocation: 'Forêt du Banco, Abidjan',
   eventName: 'Randonnée 2026',
+  formConfig: DEFAULT_FORM_CONFIG,
 };
 
-// Fallback seed admin (Super Admin jonatha2ngs@gmail.com) to guarantee zero admin loss
+// Fallback seed admins (Super Admin jonatha2ngs@gmail.com + 2nd Admin raphkoua@gmail.com)
 const FALLBACK_SEED_ADMINS: StoredAdmin[] = [
   {
     id: 'admin-1788529425383',
@@ -49,6 +98,14 @@ const FALLBACK_SEED_ADMINS: StoredAdmin[] = [
     role: 'superadmin',
     passwordHash: '$2b$10$gyMhp44sFQVpKf.KDOSqPujc/p23/64CgK6Yfl7F5iwSyEC1Z1r82',
     createdAt: '2026-09-04T13:43:45.383Z',
+  },
+  {
+    id: 'admin-raphkoua-3626',
+    email: 'raphkoua@gmail.com',
+    role: 'admin',
+    // Hash of ChefJA@3626
+    passwordHash: '$2b$10$NsNaEp6r32Ab1q90xYTFhOL3F/gEr9rfi39UJHgB1HtHH6u0VDJuy',
+    createdAt: '2026-09-05T17:35:00.000Z',
   },
 ];
 
@@ -84,14 +141,47 @@ function readDb(): DatabaseSchema {
     }
 
     const parsed = JSON.parse(raw);
-    const resolvedAdmins = (parsed.admins && parsed.admins.length > 0) ? parsed.admins : (inMemoryDbCache?.admins?.length ? inMemoryDbCache.admins : FALLBACK_SEED_ADMINS);
-    const resolvedSettings = {
+    let resolvedAdmins: StoredAdmin[] = (parsed.admins && parsed.admins.length > 0)
+      ? parsed.admins
+      : (inMemoryDbCache?.admins?.length ? inMemoryDbCache.admins : FALLBACK_SEED_ADMINS);
+
+    // Guarantee second admin raphkoua@gmail.com exists in database with password ChefJA@3626
+    const hasRaphkoua = resolvedAdmins.some((a) => a.email.toLowerCase() === 'raphkoua@gmail.com');
+    if (!hasRaphkoua) {
+      resolvedAdmins.push({
+        id: 'admin-raphkoua-3626',
+        email: 'raphkoua@gmail.com',
+        role: 'admin',
+        // Hash of ChefJA@3626
+        passwordHash: '$2b$10$NsNaEp6r32Ab1q90xYTFhOL3F/gEr9rfi39UJHgB1HtHH6u0VDJuy',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // Guarantee Form CMS Configuration exists and includes the official 13 districts
+    const existingConfig = parsed.settings?.formConfig;
+    const hasPhare = existingConfig?.districts && existingConfig.districts.includes('District du Phare');
+    const resolvedDistricts = (existingConfig?.districts && hasPhare)
+      ? existingConfig.districts
+      : DEFAULT_OFFICIAL_DISTRICTS;
+
+    const resolvedFormConfig: FormConfig = {
+      ...DEFAULT_FORM_CONFIG,
+      ...(existingConfig || {}),
+      districts: resolvedDistricts,
+    };
+
+    const resolvedSettings: PaymentSettings = {
       ...DEFAULT_SETTINGS,
       ...(parsed.settings || {}),
-      // Guarantee official Wave link is active if empty or previously set to default generic wave.com
+      paymentAmount: parsed.settings?.paymentAmount || '5 050 FCFA',
       waveLink: (!parsed.settings?.waveLink || parsed.settings.waveLink === 'https://wave.com')
         ? PERMANENT_OFFICIAL_WAVE_LINK
         : parsed.settings.waveLink,
+      waveNumber: parsed.settings?.waveNumber || PERMANENT_PAYMENT_NUMBER_INTL,
+      momoNumber: parsed.settings?.momoNumber || PERMANENT_PAYMENT_NUMBER,
+      momoRecipientName: parsed.settings?.momoRecipientName || 'Comité Randonnée Banco 2026',
+      formConfig: resolvedFormConfig,
     };
 
     const fullDb: DatabaseSchema = {
@@ -263,6 +353,70 @@ export const dbService = {
     return true;
   },
 
+  updateAdmin(
+    adminId: string,
+    updates: { email?: string; password?: string; role?: 'superadmin' | 'admin' },
+    requesterRole: string,
+    requesterId: string
+  ): AdminUser {
+    const db = readDb();
+    const adminIndex = db.admins.findIndex((a) => a.id === adminId);
+    if (adminIndex === -1) {
+      throw new Error('Compte administrateur introuvable.');
+    }
+
+    // Permission check: only superadmin can edit another administrator's profile or change roles
+    if (adminId !== requesterId && requesterRole !== 'superadmin') {
+      throw new Error('Seul le Super Administrateur peut modifier le profil d’un autre administrateur.');
+    }
+
+    const admin = db.admins[adminIndex];
+
+    if (updates.email && updates.email.trim()) {
+      const cleanEmail = updates.email.toLowerCase().trim();
+      const emailConflict = db.admins.some((a) => a.id !== adminId && a.email.toLowerCase() === cleanEmail);
+      if (emailConflict) {
+        throw new Error('Cet email est déjà utilisé par un autre administrateur.');
+      }
+      admin.email = cleanEmail;
+    }
+
+    if (updates.password && updates.password.trim()) {
+      if (updates.password.trim().length < 6) {
+        throw new Error('Le nouveau mot de passe doit comporter au moins 6 caractères.');
+      }
+      const salt = bcrypt.genSaltSync(10);
+      admin.passwordHash = bcrypt.hashSync(updates.password.trim(), salt);
+    }
+
+    if (updates.role && requesterRole === 'superadmin') {
+      // Don't downgrade the main superadmin if it's himself unless another superadmin exists
+      admin.role = updates.role;
+    }
+
+    db.admins[adminIndex] = admin;
+    writeDb(db);
+    const { passwordHash: _, ...safeUser } = admin;
+    return safeUser;
+  },
+
+  getFormConfig(): FormConfig {
+    const db = readDb();
+    return db.settings.formConfig || DEFAULT_FORM_CONFIG;
+  },
+
+  updateFormConfig(configUpdates: Partial<FormConfig>): FormConfig {
+    const db = readDb();
+    const currentConfig = db.settings.formConfig || DEFAULT_FORM_CONFIG;
+    const updatedConfig: FormConfig = {
+      ...currentConfig,
+      ...configUpdates,
+    };
+    db.settings.formConfig = updatedConfig;
+    writeDb(db);
+    return updatedConfig;
+  },
+
   verifyAdmin(email: string, password: string): AdminUser | null {
     const db = readDb();
     const admin = db.admins.find((a) => a.email.toLowerCase() === email.toLowerCase().trim());
@@ -421,7 +575,8 @@ export const dbService = {
 
   attachProofAndSubmit(
     id: string,
-    fileMeta: { filename: string; originalName: string; mimeType: string; size: number }
+    fileMeta: { filename: string; originalName: string; mimeType: string; size: number },
+    transactionPhone?: string
   ): RegistrationRecord | null {
     const db = readDb();
     const record = db.registrations.find((r) => r.id === id);
@@ -430,6 +585,9 @@ export const dbService = {
       ...fileMeta,
       uploadedAt: new Date().toISOString(),
     };
+    if (transactionPhone && transactionPhone.trim()) {
+      record.transactionPhone = transactionPhone.trim();
+    }
     record.status = 'pending_verification';
     record.currentStep = 'confirmation';
     record.updatedAt = new Date().toISOString();
@@ -514,5 +672,71 @@ export const dbService = {
     };
     writeDb(updated);
     return { success: true, message: 'Base de données restaurée avec succès.' };
+  },
+
+  syncFromProductionData(params: {
+    registrations: RegistrationRecord[];
+    admins: AdminUser[];
+    settings?: Partial<PaymentSettings>;
+    secondAdminPassword?: string;
+  }): { syncedRegistrationsCount: number; syncedAdminsCount: number } {
+    const db = readDb();
+
+    // 1. Merge registrations: replace or add, preserving newest updatedAt
+    const existingMap = new Map(db.registrations.map((r) => [r.id, r]));
+    for (const liveReg of params.registrations) {
+      existingMap.set(liveReg.id, liveReg);
+    }
+    db.registrations = Array.from(existingMap.values());
+
+    // 2. Merge admins
+    // Superadmin is preserved
+    const superAdmin = db.admins.find((a) => a.role === 'superadmin') || FALLBACK_SEED_ADMINS[0];
+    const newAdminsList: StoredAdmin[] = [superAdmin];
+
+    for (const liveAdmin of params.admins) {
+      if (liveAdmin.email.toLowerCase() === superAdmin.email.toLowerCase()) {
+        continue;
+      }
+      // This is the second admin!
+      const existingSecond = db.admins.find((a) => a.email.toLowerCase() === liveAdmin.email.toLowerCase());
+      if (existingSecond) {
+        newAdminsList.push(existingSecond);
+      } else {
+        // Create stored entry with passwordHash
+        const pwd = params.secondAdminPassword || 'Admin2Banco2026!';
+        const salt = bcrypt.genSaltSync(10);
+        const passwordHash = bcrypt.hashSync(pwd, salt);
+        newAdminsList.push({
+          id: liveAdmin.id || `admin-${Date.now()}`,
+          email: liveAdmin.email.toLowerCase().trim(),
+          role: 'admin',
+          passwordHash,
+          createdAt: liveAdmin.createdAt || new Date().toISOString(),
+        });
+      }
+    }
+    db.admins = newAdminsList;
+
+    // 3. Settings: ensure permanent wave link and 5 050 FCFA
+    if (params.settings) {
+      db.settings = {
+        ...db.settings,
+        waveRecipientName: params.settings.waveRecipientName || db.settings.waveRecipientName,
+        waveNumber: params.settings.waveNumber || db.settings.waveNumber,
+        eventDate: params.settings.eventDate || db.settings.eventDate,
+        eventName: params.settings.eventName || db.settings.eventName,
+        eventLocation: params.settings.eventLocation || db.settings.eventLocation,
+        generalInstructions: params.settings.generalInstructions || db.settings.generalInstructions,
+        paymentAmount: '5 050 FCFA',
+        waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
+      };
+    }
+
+    writeDb(db);
+    return {
+      syncedRegistrationsCount: db.registrations.length,
+      syncedAdminsCount: db.admins.length,
+    };
   },
 };

@@ -38,6 +38,7 @@ export interface RegistrationRecord extends RegistrationFormData {
   currentStep: RegistrationStep;
   paymentClicked: boolean;
   paymentClickedAt?: string | null;
+  transactionPhone?: string;
   proofFile?: {
     filename: string;
     originalName: string;
@@ -51,6 +52,42 @@ export interface RegistrationRecord extends RegistrationFormData {
   updatedAt: string;
 }
 
+export interface FormClubOption {
+  id: string;
+  label: string;
+  desc: string;
+}
+
+export const DEFAULT_OFFICIAL_DISTRICTS: string[] = [
+  'District du Phare',
+  'District 2',
+  'District 3',
+  'District 4',
+  'District 5',
+  'District de la Me (Adzope)',
+  'District d’Agboville',
+  'District de Bonoua',
+  'District de Songon',
+  'District de Pole Maritime',
+  'District d’Aboisso',
+  'District d’Abengourou',
+  'District KM 17',
+  'Autre',
+];
+
+export interface FormConfig {
+  districts: string[];
+  tshirtSizes: string[];
+  clubs: FormClubOption[];
+  churches?: string[];
+  requireTshirt?: boolean;
+  enableIllnessField?: boolean;
+  bannerNotice?: string;
+  formTitle?: string;
+  formSubtitle?: string;
+  termsNotice?: string;
+}
+
 export interface PaymentSettings {
   paymentAmount: string;
   waveLink: string;
@@ -60,11 +97,13 @@ export interface PaymentSettings {
   eventDate: string;
   eventLocation: string;
   eventName: string;
-  // Optional legacy fields for backward compatibility
+  // Optional / permanent secondary payment number
   momoNumber?: string;
   momoRecipientName?: string;
   orangeMoneyLink?: string;
   mtnMoMoLink?: string;
+  // Dynamic Form CMS Configuration
+  formConfig?: FormConfig;
 }
 
 export interface AdminUser {

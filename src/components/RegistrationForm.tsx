@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   User,
   Church,
@@ -14,7 +14,7 @@ import {
   Info,
   Share2,
 } from 'lucide-react';
-import { RegistrationFormData, ClubType, TshirtSize } from '../types.js';
+import { RegistrationFormData, ClubType, TshirtSize, FormConfig, DEFAULT_OFFICIAL_DISTRICTS } from '../types.js';
 
 interface RegistrationFormProps {
   initialData: RegistrationFormData;
@@ -23,24 +23,10 @@ interface RegistrationFormProps {
   lastSavedText: string;
   isSaving: boolean;
   onShareClick?: () => void;
+  formConfig?: FormConfig;
 }
 
-const DISTRICT_OPTIONS = [
-  'District Abidjan Nord',
-  'District Abidjan Sud',
-  'District Abidjan Est',
-  'District Abidjan Ouest',
-  'District Yopougon',
-  'District Cocody',
-  'District Port-Bouët / Koumassi',
-  'District Grand-Bassam',
-  'District Anyama / Bingerville',
-  'District Dabou / Tiassalé',
-  'District Bouaké',
-  'Autre',
-];
-
-const CLUB_OPTIONS: { id: ClubType; label: string; desc: string }[] = [
+const FALLBACK_CLUB_OPTIONS: { id: ClubType; label: string; desc: string }[] = [
   { id: 'Aventurier', label: 'Aventurier', desc: '6 à 9 ans' },
   { id: 'Éclaireur', label: 'Éclaireur', desc: '10 à 15 ans' },
   { id: 'Ambassadeur', label: 'Ambassadeur', desc: '16 à 21 ans' },
@@ -50,7 +36,7 @@ const CLUB_OPTIONS: { id: ClubType; label: string; desc: string }[] = [
   { id: 'Autre', label: 'Autre', desc: 'Sympathisant / Invité' },
 ];
 
-const TSHIRT_OPTIONS: TshirtSize[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Autre'];
+const FALLBACK_TSHIRT_OPTIONS: TshirtSize[] = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Autre'];
 
 const CHURCH_SUGGESTIONS = [
   'Temple du Jubilé (Cocody)',
@@ -75,12 +61,34 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   lastSavedText,
   isSaving,
   onShareClick,
+  formConfig,
 }) => {
   const [formData, setFormData] = useState<RegistrationFormData>(initialData);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [churchQuery, setChurchQuery] = useState(initialData.church || '');
   const [showChurchSuggestions, setShowChurchSuggestions] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+
+  const districtOptions = useMemo(() => {
+    if (formConfig?.districts && formConfig.districts.length > 0) {
+      return formConfig.districts;
+    }
+    return DEFAULT_OFFICIAL_DISTRICTS;
+  }, [formConfig?.districts]);
+
+  const clubOptions = useMemo(() => {
+    if (formConfig?.clubs && formConfig.clubs.length > 0) {
+      return formConfig.clubs;
+    }
+    return FALLBACK_CLUB_OPTIONS;
+  }, [formConfig?.clubs]);
+
+  const tshirtOptions = useMemo(() => {
+    if (formConfig?.tshirtSizes && formConfig.tshirtSizes.length > 0) {
+      return formConfig.tshirtSizes;
+    }
+    return FALLBACK_TSHIRT_OPTIONS;
+  }, [formConfig?.tshirtSizes]);
 
   // Sync state if initialData changes externally
   useEffect(() => {
@@ -186,7 +194,17 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
   );
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-16 space-y-6">
+      {/* Dynamic Banner Notice if configured by Admin */}
+      {formConfig?.bannerNotice && (
+        <div className="p-4 rounded-2xl bg-[#D2691E]/10 border border-[#D2691E]/30 flex items-start gap-3">
+          <Info className="w-5 h-5 text-[#D2691E] shrink-0 mt-0.5" />
+          <p className="text-xs sm:text-sm font-medium text-[#2d2d2a]">
+            {formConfig.bannerNotice}
+          </p>
+        </div>
+      )}
+
       {/* Header bar with Serif Title, Step Badge and Auto-Save Status */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
@@ -197,10 +215,10 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-serif italic text-[#5A5A40]">
-            Formulaire d'inscription
+            {formConfig?.formTitle || "Formulaire d'inscription"}
           </h2>
           <p className="text-xs sm:text-sm text-[#7a7a72] mt-0.5">
-            Veuillez renseigner vos informations personnelles pour réserver votre place.
+            {formConfig?.formSubtitle || "Veuillez renseigner vos informations personnelles pour réserver votre place."}
           </p>
         </div>
 
@@ -412,7 +430,7 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                 }`}
               >
                 <option value="">-- Sélectionnez votre district --</option>
-                {DISTRICT_OPTIONS.map((dist) => (
+                {districtOptions.map((dist) => (
                   <option key={dist} value={dist}>
                     {dist}
                   </option>
@@ -457,13 +475,13 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               </div>
 
               <div className="flex flex-wrap gap-2.5">
-                {CLUB_OPTIONS.map((club) => {
+                {clubOptions.map((club) => {
                   const isSelected = formData.club === club.id;
                   return (
                     <button
                       type="button"
                       key={club.id}
-                      onClick={() => updateField('club', club.id)}
+                      onClick={() => updateField('club', club.id as ClubType)}
                       className={`px-4 py-2 rounded-full border-2 text-xs font-bold transition-all cursor-pointer flex items-center gap-2 select-none ${
                         isSelected
                           ? 'border-[#D2691E] bg-[#D2691E] text-white shadow-sm'
@@ -534,14 +552,14 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(['XS', 'S', 'M', 'L', 'XL', 'XXL'] as TshirtSize[]).map((size) => {
+                {tshirtOptions.map((size) => {
                   const isSelected = formData.tshirtSize === size;
                   return (
                     <button
                       type="button"
                       key={size}
-                      onClick={() => updateField('tshirtSize', isSelected ? undefined : size)}
-                      className={`w-11 h-11 border-2 rounded-xl flex items-center justify-center text-xs font-bold cursor-pointer transition-all ${
+                      onClick={() => updateField('tshirtSize', isSelected ? undefined : (size as TshirtSize))}
+                      className={`min-w-11 h-11 px-3 border-2 rounded-xl flex items-center justify-center text-xs font-bold cursor-pointer transition-all ${
                         isSelected
                           ? 'border-[#D2691E] bg-[#D2691E] text-white shadow-xs'
                           : 'border-[#5A5A40]/30 text-[#5A5A40] hover:border-[#5A5A40] bg-transparent'
@@ -551,18 +569,6 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
                     </button>
                   );
                 })}
-
-                <button
-                  type="button"
-                  onClick={() => updateField('tshirtSize', formData.tshirtSize === 'Autre' ? undefined : 'Autre')}
-                  className={`px-3.5 h-11 border-2 rounded-xl flex items-center justify-center text-xs font-bold cursor-pointer transition-all ${
-                    formData.tshirtSize === 'Autre'
-                      ? 'border-[#D2691E] bg-[#D2691E] text-white shadow-xs'
-                      : 'border-[#5A5A40]/30 text-[#5A5A40] hover:border-[#5A5A40] bg-transparent'
-                  }`}
-                >
-                  Autre taille
-                </button>
               </div>
 
               {formData.tshirtSize === 'Autre' && (
@@ -664,6 +670,14 @@ export const RegistrationForm: React.FC<RegistrationFormProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Dynamic Terms / Aptitude Notice if configured */}
+        {formConfig?.termsNotice && (
+          <div className="p-3.5 rounded-xl bg-[#5A5A40]/5 border border-[#5A5A40]/15 text-xs text-[#5A5A40] flex items-center gap-2.5">
+            <Info className="w-4 h-4 text-[#D2691E] shrink-0" />
+            <span>{formConfig.termsNotice}</span>
+          </div>
+        )}
 
         {/* Action button */}
         <div className="pt-6 border-t border-[#5A5A40]/15 flex flex-col sm:flex-row items-center justify-between gap-4">

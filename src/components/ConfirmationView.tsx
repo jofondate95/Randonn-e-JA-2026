@@ -15,6 +15,7 @@ import {
   Trees,
   ShieldCheck,
   RefreshCw,
+  Smartphone,
 } from 'lucide-react';
 import { RegistrationRecord, PaymentSettings } from '../types.js';
 import { exportSingleParticipantPDF } from '../utils/exportUtils.js';
@@ -156,6 +157,16 @@ export const ConfirmationView: React.FC<ConfirmationViewProps> = ({
             </div>
             <div className="font-bold text-[#2d2d2a] font-mono">{registration.contact}</div>
           </div>
+
+          {registration.transactionPhone && (
+            <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5 mb-1">
+                <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Numéro émetteur Wave (Transaction)</span>
+              </div>
+              <div className="font-bold text-emerald-950 font-mono">{registration.transactionPhone}</div>
+            </div>
+          )}
 
           <div className="p-4 rounded-xl bg-[#f5f2ed]/60 border border-[#5A5A40]/10">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#7a7a72] flex items-center gap-1.5 mb-1">

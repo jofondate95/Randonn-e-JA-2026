@@ -35,6 +35,7 @@ import {
   AlertTriangle,
   Database,
   UploadCloud,
+  Smartphone,
 } from 'lucide-react';
 import { AdminUser, RegistrationRecord, PaymentSettings, RegistrationStatus, AdminQuotaInfo } from '../types.js';
 
@@ -45,6 +46,7 @@ import {
   exportSingleParticipantPDF,
 } from '../utils/exportUtils.js';
 import { ShareModal } from './ShareModal.js';
+import { FormCmsTab } from './FormCmsTab.js';
 
 interface AdminViewProps {
   token: string;
@@ -61,7 +63,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onClose,
   onSettingsUpdated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'inscrits' | 'relances' | 'settings' | 'admins'>('inscrits');
+  const [activeTab, setActiveTab] = useState<'inscrits' | 'relances' | 'settings' | 'admins' | 'form_cms'>('inscrits');
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [stats, setStats] = useState({
     total: 0,
@@ -84,7 +86,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [exporting, setExporting] = useState<string | null>(null);
 
   // Proof viewer modal
-  const [viewingProof, setViewingProof] = useState<{ filename: string; originalName: string } | null>(null);
+  const [viewingProof, setViewingProof] = useState<{
+    filename: string;
+    originalName: string;
+    fullName?: string;
+    contact?: string;
+    transactionPhone?: string;
+  } | null>(null);
 
   // Status edit modal
   const [editingRegistration, setEditingRegistration] = useState<RegistrationRecord | null>(null);
@@ -121,6 +129,58 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [pwdMsg, setPwdMsg] = useState<{ text: string; isError: boolean } | null>(null);
 
+  // Edit Admin Account Modal states
+  const [editingAdmin, setEditingAdmin] = useState<AdminUser | null>(null);
+  const [editAdminEmail, setEditAdminEmail] = useState('');
+  const [editAdminPassword, setEditAdminPassword] = useState('');
+  const [editAdminRole, setEditAdminRole] = useState<'superadmin' | 'admin'>('admin');
+  const [isUpdatingAdmin, setIsUpdatingAdmin] = useState(false);
+  const [editAdminFeedback, setEditAdminFeedback] = useState<{ text: string; isError: boolean } | null>(null);
+
+  const handleStartEditAdmin = (admin: AdminUser) => {
+    setEditingAdmin(admin);
+    setEditAdminEmail(admin.email);
+    setEditAdminPassword('');
+    setEditAdminRole(admin.role);
+    setEditAdminFeedback(null);
+  };
+
+  const handleUpdateAdminSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAdmin) return;
+    setIsUpdatingAdmin(true);
+    setEditAdminFeedback(null);
+    try {
+      const payload: any = {
+        email: editAdminEmail.trim(),
+        role: editAdminRole,
+      };
+      if (editAdminPassword.trim()) {
+        payload.password = editAdminPassword.trim();
+      }
+
+      const res = await fetch(`/api/admin/accounts/${editingAdmin.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur lors de la mise à jour de l'administrateur.");
+      setEditAdminFeedback({ text: data.message || "Administrateur mis à jour avec succès !", isError: false });
+      fetchAdmins();
+      setTimeout(() => {
+        setEditingAdmin(null);
+      }, 1500);
+    } catch (err: any) {
+      setEditAdminFeedback({ text: err.message, isError: true });
+    } finally {
+      setIsUpdatingAdmin(false);
+    }
+  };
+
   // Share simplified link modal
   const [showShareModal, setShowShareModal] = useState(false);
 
@@ -128,6 +188,47 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isDownloadingBackup, setIsDownloadingBackup] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [backupRestoreMsg, setBackupRestoreMsg] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Production Sync states (to pull live registered users & 2nd admin from live site before republishing)
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncProdUrl, setSyncProdUrl] = useState('https://randonnee-ja-2026.ai.studio');
+  const [syncProdEmail, setSyncProdEmail] = useState(currentUser.email || 'jonatha2ngs@gmail.com');
+  const [syncProdPassword, setSyncProdPassword] = useState('');
+  const [syncSecondAdminPassword, setSyncSecondAdminPassword] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ text: string; isError: boolean } | null>(null);
+
+  // Handle Sync from Live URL
+  const handleSyncFromProduction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSyncing(true);
+    setSyncFeedback(null);
+    try {
+      const res = await fetch('/api/admin/sync-from-production', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          productionUrl: syncProdUrl,
+          prodEmail: syncProdEmail,
+          prodPassword: syncProdPassword,
+          secondAdminPassword: syncSecondAdminPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur lors de la synchronisation.');
+      setSyncFeedback({ text: data.message, isError: false });
+      fetchRegistrations();
+      fetchSettings();
+      fetchAdmins();
+    } catch (err: any) {
+      setSyncFeedback({ text: err.message, isError: true });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Handle download permanent JSON backup
   const handleDownloadPermanentBackup = async () => {
@@ -663,6 +764,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <Shield className="w-3.5 h-3.5" />
                 <span>Comptes Admins</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab('form_cms')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'form_cms'
+                    ? 'bg-[#5A5A40] text-white shadow-xs'
+                    : 'bg-white text-[#5A5A40] hover:bg-[#f5f2ed] border border-[#5A5A40]/20'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5 text-[#D2691E]" />
+                <span>Gestion Formulaire (CMS)</span>
+              </button>
             </div>
 
             {/* Export & Refresh Toolbar */}
@@ -707,6 +820,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 >
                   <Database className="w-3.5 h-3.5 text-amber-300" />
                   <span>{isDownloadingBackup ? 'Sauvegarde...' : 'Sauvegarde JSON'}</span>
+                </button>
+
+                {/* Sync from Production Button */}
+                <button
+                  onClick={() => setSyncModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider bg-sky-700 hover:bg-sky-800 text-white shadow-xs transition-all cursor-pointer"
+                  title="Récupérer les inscrits et les administrateurs depuis https://randonnee-ja-2026.ai.studio"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-sky-200" />
+                  <span>Sync Production</span>
                 </button>
 
                 {/* Export Options modal button */}
@@ -863,13 +986,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
                             {/* Church & Contact */}
                             <td className="py-3 px-3">
                               <div className="text-stone-800 font-medium">{item.church}</div>
-                              <a
-                                href={`tel:${item.contact}`}
-                                className="inline-flex items-center gap-1 font-mono text-emerald-800 hover:underline mt-0.5"
-                              >
-                                <Phone className="w-3 h-3 text-emerald-600" />
-                                <span>{item.contact}</span>
-                              </a>
+                              <div className="flex flex-col gap-1 mt-0.5">
+                                <a
+                                  href={`tel:${item.contact}`}
+                                  className="inline-flex items-center gap-1 font-mono text-emerald-800 hover:underline"
+                                  title="Numéro de contact du participant"
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  <span>{item.contact}</span>
+                                </a>
+                                {item.transactionPhone && (
+                                  <span
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-emerald-950 bg-emerald-100/90 px-1.5 py-0.5 rounded border border-emerald-300 w-fit"
+                                    title="Numéro émetteur Wave ayant servi au paiement"
+                                  >
+                                    <Smartphone className="w-2.5 h-2.5 text-emerald-700" />
+                                    <span>Tx: {item.transactionPhone}</span>
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* District & Club */}
@@ -906,6 +1041,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                     setViewingProof({
                                       filename: item.proofFile!.filename,
                                       originalName: item.proofFile!.originalName,
+                                      fullName: item.fullName,
+                                      contact: item.contact,
+                                      transactionPhone: item.transactionPhone,
                                     })
                                   }
                                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold text-emerald-900 bg-emerald-100/70 hover:bg-emerald-200 transition-colors cursor-pointer"
@@ -1062,11 +1200,42 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <input
                       type="text"
                       placeholder="+225 07 00 00 00 00"
-                      value={settings.waveNumber || settings.momoNumber || ''}
-                      onChange={(e) => setSettings({ ...settings, waveNumber: e.target.value, momoNumber: e.target.value })}
+                      value={settings.waveNumber || ''}
+                      onChange={(e) => setSettings({ ...settings, waveNumber: e.target.value })}
                       className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-mono text-stone-900 focus:ring-2 focus:ring-amber-200"
                     />
                   </div>
+                </div>
+
+                {/* Permanent optional payment number box */}
+                <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider">
+                      Numéro de paiement optionnel permanent (0769343626)
+                    </label>
+                    <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded-full inline-block">
+                      Enregistré & Permanent
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={settings.momoNumber || '0769343626'}
+                      onChange={(e) => setSettings({ ...settings, momoNumber: e.target.value })}
+                      placeholder="0769343626"
+                      className="flex-1 px-3.5 py-2 border border-amber-300 rounded-xl text-xs font-mono font-bold text-stone-900 bg-white focus:ring-2 focus:ring-amber-300 focus:outline-none shadow-2xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ ...settings, momoNumber: '0769343626' })}
+                      className="px-3.5 py-2 text-xs font-bold text-amber-900 bg-amber-200 hover:bg-amber-300 rounded-xl transition-colors cursor-pointer shrink-0"
+                    >
+                      Rétablir 0769343626
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-amber-800">
+                    Ce numéro optionnel permanent est conservé sur le tableau de bord et dans la base de données. Il permet de recevoir des paiements directs Wave ou transferts mobiles alternatifs.
+                  </p>
                 </div>
 
                 <div>
@@ -1122,6 +1291,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSyncModalOpen(true)}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-sky-700 hover:bg-sky-800 shadow-xs cursor-pointer transition-colors"
+                      title="Importer les données depuis https://randonnee-ja-2026.ai.studio"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-sky-200" />
+                      <span>Synchroniser depuis le site en ligne</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleDownloadPermanentBackup}
@@ -1220,6 +1399,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           ? 'Le Super Administrateur et le deuxième administrateur sont enregistrés. Les inscriptions de nouveaux administrateurs sont définitivement closes. Seule la connexion des administrateurs est autorisée.'
                           : 'Après le Super Administrateur, seul un deuxième administrateur est autorisé dans le système. Dès l’inscription du deuxième, toute nouvelle inscription sera bloquée et seule la connexion sera permise.'}
                       </p>
+                      {adminList.length < 2 && (
+                        <div className="mt-3 pt-2 border-t border-amber-300/40 flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSyncModalOpen(true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-800 hover:bg-amber-900 text-white shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+                            <span>Importer le 2ème admin & inscrits depuis https://randonnee-ja-2026.ai.studio</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1366,22 +1557,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               : 'Jamais'}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {isSuperAdmin ? (
-                              <span className="text-[10px] text-stone-400 italic">Compte principal protégé</span>
-                            ) : canDelete ? (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteAdmin(admin.id, admin.email)}
-                                disabled={deletingAdminId === admin.id}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
-                                title="Révoquer ce compte administrateur (libère la 2ème place)"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>{deletingAdminId === admin.id ? 'Suppression...' : 'Révoquer'}</span>
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-stone-400">—</span>
-                            )}
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {(currentUser.role === 'superadmin' || admin.id === currentUser.id) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditAdmin(admin)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-900 hover:bg-amber-100 bg-amber-50 border border-amber-200 transition-colors cursor-pointer"
+                                  title="Modifier email ou mot de passe"
+                                >
+                                  <KeyRound className="w-3 h-3 text-amber-700" />
+                                  <span>Modifier</span>
+                                </button>
+                              )}
+
+                              {isSuperAdmin ? (
+                                <span className="text-[10px] text-stone-400 italic hidden sm:inline">Principal</span>
+                              ) : canDelete ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAdmin(admin.id, admin.email)}
+                                  disabled={deletingAdminId === admin.id}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Révoquer ce compte administrateur (libère la 2ème place)"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>{deletingAdminId === admin.id ? '...' : 'Révoquer'}</span>
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1389,6 +1592,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: GESTION DU FORMULAIRE (CMS EN TEMPS RÉEL) */}
+          {activeTab === 'form_cms' && (
+            <div className="flex-1 overflow-auto max-w-5xl w-full">
+              <FormCmsTab
+                token={token}
+                initialConfig={settings.formConfig}
+                onConfigSaved={(updatedConfig) => {
+                  setSettings(prev => ({ ...prev, formConfig: updatedConfig }));
+                  if (onSettingsUpdated) {
+                    onSettingsUpdated({ ...settings, formConfig: updatedConfig });
+                  }
+                }}
+              />
             </div>
           )}
         </div>
@@ -1400,8 +1619,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
           <div className="relative bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="p-4 border-b border-stone-200 flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-bold text-stone-900">{viewingProof.originalName}</h4>
-                <p className="text-[11px] text-stone-500">Preuve de virement Mobile Money</p>
+                <h4 className="text-sm font-bold text-stone-900">
+                  {viewingProof.fullName ? `Preuve de paiement : ${viewingProof.fullName}` : viewingProof.originalName}
+                </h4>
+                <div className="flex flex-wrap items-center gap-2.5 mt-1 text-xs">
+                  {viewingProof.contact && (
+                    <span className="text-stone-600">
+                      Contact : <strong className="font-mono text-stone-900">{viewingProof.contact}</strong>
+                    </span>
+                  )}
+                  {viewingProof.transactionPhone && (
+                    <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-emerald-950 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      <Smartphone className="w-3 h-3 text-emerald-700" />
+                      <span>N° Transaction Wave : {viewingProof.transactionPhone}</span>
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <a
@@ -1446,9 +1679,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
         <div className="fixed inset-0 z-60 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-              <h4 className="text-sm font-bold text-stone-900">
-                Modifier le statut : {editingRegistration.id}
-              </h4>
+              <div>
+                <h4 className="text-sm font-bold text-stone-900">
+                  Modifier le statut : {editingRegistration.id}
+                </h4>
+                <div className="text-xs text-stone-600 mt-0.5">
+                  Participant : <strong>{editingRegistration.fullName}</strong>
+                </div>
+                {editingRegistration.transactionPhone && (
+                  <div className="text-[11px] font-mono font-semibold text-emerald-800 mt-0.5 flex items-center gap-1">
+                    <Smartphone className="w-3 h-3 text-emerald-600" />
+                    <span>N° Transaction Wave : {editingRegistration.transactionPhone}</span>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={() => setEditingRegistration(null)}
                 className="text-stone-400 hover:text-stone-700"
@@ -1901,6 +2145,246 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <span>{isResetting ? 'Réinitialisation en cours...' : 'Remettre tous les compteurs à 0'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sync from Production Modal */}
+      {syncModalOpen && (
+        <div className="fixed inset-0 z-70 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-sky-200 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                  <RefreshCw className={`w-6 h-6 ${isSyncing ? 'animate-spin' : ''}`} />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-stone-900">
+                    Synchroniser depuis le site en ligne
+                  </h4>
+                  <p className="text-xs text-sky-700 font-medium mt-0.5">
+                    Récupérer les inscrits & le 2ème administrateur avant de republier
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncModalOpen(false);
+                  setSyncFeedback(null);
+                }}
+                className="p-2 text-stone-400 hover:text-stone-700 hover:bg-stone-100 rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 bg-sky-50 border border-sky-200 rounded-2xl space-y-2 text-xs text-sky-950 leading-relaxed">
+              <p>
+                💡 <strong>Pourquoi cette étape ?</strong>
+              </p>
+              <p className="text-stone-700">
+                Sur le site publié (<strong>https://randonnee-ja-2026.ai.studio</strong>), des participants se sont déjà inscrits et le 2ème administrateur a été configuré.
+              </p>
+              <p className="text-stone-700">
+                Cette fonction importe instantanément l'intégralité de ces données dans votre espace de travail. Ainsi, lorsque vous republiez vos modifications, <strong>absolument rien ne sera remis à zéro</strong> !
+              </p>
+            </div>
+
+            {syncFeedback && (
+              <div
+                className={`p-3.5 rounded-2xl text-xs font-semibold ${
+                  syncFeedback.isError
+                    ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                }`}
+              >
+                {syncFeedback.text}
+              </div>
+            )}
+
+            <form onSubmit={handleSyncFromProduction} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  URL du site en ligne
+                </label>
+                <input
+                  type="url"
+                  required
+                  value={syncProdUrl}
+                  onChange={(e) => setSyncProdUrl(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Email Super Administrateur (sur le site publié)
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={syncProdEmail}
+                  onChange={(e) => setSyncProdEmail(e.target.value)}
+                  placeholder="jonatha2ngs@gmail.com"
+                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Mot de passe Super Administrateur (sur le site publié)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={syncProdPassword}
+                  onChange={(e) => setSyncProdPassword(e.target.value)}
+                  placeholder="Votre mot de passe sur le site publié"
+                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="text-[11px] text-stone-500 mt-1">
+                  Nécessaire pour autoriser la récupération sécurisée du registre des inscrits.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
+                  Mot de passe du 2ème administrateur (Optionnel)
+                </label>
+                <input
+                  type="text"
+                  value={syncSecondAdminPassword}
+                  onChange={(e) => setSyncSecondAdminPassword(e.target.value)}
+                  placeholder="Mot de passe du 2ème admin (facultatif)"
+                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-sky-500"
+                />
+                <p className="text-[11px] text-stone-500 mt-1">
+                  Si laissé vide, un mot de passe par défaut lui sera assigné et pourra être réinitialisé.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSyncModalOpen(false);
+                    setSyncFeedback(null);
+                  }}
+                  disabled={isSyncing}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                >
+                  Fermer
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-sky-700 hover:bg-sky-800 text-white cursor-pointer shadow-xs disabled:opacity-50 transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>{isSyncing ? 'Synchronisation en cours...' : 'Importer et synchroniser'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Admin Account Modal */}
+      {editingAdmin && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-stone-200">
+            <div className="flex items-center justify-between pb-4 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-700" />
+                <h3 className="text-sm font-bold text-stone-900">
+                  Modifier le compte administrateur
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingAdmin(null)}
+                className="p-1 text-stone-400 hover:text-stone-700 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateAdminSubmit} className="space-y-4 mt-4">
+              {editAdminFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold ${
+                    editAdminFeedback.isError
+                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  }`}
+                >
+                  {editAdminFeedback.text}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Adresse Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={editAdminEmail}
+                  onChange={(e) => setEditAdminEmail(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                  Nouveau Mot de Passe (laisser vide pour ne pas changer)
+                </label>
+                <input
+                  type="password"
+                  placeholder="Laisser vide pour conserver le mot de passe actuel"
+                  value={editAdminPassword}
+                  onChange={(e) => setEditAdminPassword(e.target.value)}
+                  className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
+                />
+                <p className="text-[11px] text-stone-500 mt-1">
+                  Pour <strong>raphkoua@gmail.com</strong>, vous pouvez définir ou modifier son mot de passe (par exemple <strong className="font-mono text-stone-800">ChefJA@3626</strong>).
+                </p>
+              </div>
+
+              {currentUser.role === 'superadmin' && (
+                <div>
+                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
+                    Rôle
+                  </label>
+                  <select
+                    value={editAdminRole}
+                    onChange={(e) => setEditAdminRole(e.target.value as 'superadmin' | 'admin')}
+                    className="w-full px-3.5 py-2 text-xs border border-stone-300 rounded-xl text-stone-900 focus:ring-2 focus:ring-amber-200"
+                  >
+                    <option value="admin">Administrateur</option>
+                    <option value="superadmin">Super Administrateur</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingAdmin(null)}
+                  disabled={isUpdatingAdmin}
+                  className="px-4 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-100 rounded-xl cursor-pointer"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingAdmin}
+                  className="px-5 py-2.5 bg-amber-800 hover:bg-amber-900 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  {isUpdatingAdmin ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -52,6 +52,7 @@ export function exportRegistrationsToExcel(
     'Nom & Prénoms': r.fullName || '',
     'Église locale': r.church || '',
     'Numéro de Contact': r.contact || '',
+    'N° Transaction Wave': r.transactionPhone || r.contact || '',
     'District': r.district === 'Autre' ? r.districtOther || 'Autre' : r.district || '',
     'Club': r.club === 'Autre' ? r.clubOther || 'Autre' : r.club || '',
     'Taille T-Shirt':
@@ -451,6 +452,7 @@ export function exportSingleParticipantPDF(
     ['Nom & Prénoms :', r.fullName || '-'],
     ['Église Locale :', r.church || '-'],
     ['Numéro de Téléphone :', r.contact || '-'],
+    ['Numéro Émetteur Wave :', r.transactionPhone || r.contact || '-'],
     ['District :', r.district === 'Autre' ? r.districtOther || 'Autre' : r.district || '-'],
     ['Club d’Appartenance :', r.club === 'Autre' ? r.clubOther || 'Autre' : r.club || '-'],
     [

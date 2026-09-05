@@ -38,13 +38,15 @@ export const PERMANENT_OFFICIAL_WAVE_LINK = 'https://pay.wave.com/m/M_ci_ZfLyfzY
 const STORAGE_ADMIN_TOKEN = 'randonnee_banco_admin_token_permanent';
 const STORAGE_ADMIN_USER = 'randonnee_banco_admin_user_permanent';
 
+import { DEFAULT_OFFICIAL_DISTRICTS } from './types.js';
+
 const DEFAULT_SETTINGS: PaymentSettings = {
-  momoNumber: '+225 07 58 42 10 90',
+  momoNumber: '0769343626',
   momoRecipientName: 'Comité Randonnée Banco 2026',
   paymentAmount: '5 050 FCFA',
   waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
   waveRecipientName: 'Comité Randonnée Banco 2026',
-  waveNumber: '+225 07 58 42 10 90',
+  waveNumber: '+225 0769343626',
   orangeMoneyLink: '',
   mtnMoMoLink: '',
   generalInstructions:
@@ -52,6 +54,21 @@ const DEFAULT_SETTINGS: PaymentSettings = {
   eventDate: 'Dimanche 15 Novembre 2026',
   eventLocation: 'Forêt du Banco, Abidjan',
   eventName: 'Randonnée 2026',
+  formConfig: {
+    districts: DEFAULT_OFFICIAL_DISTRICTS,
+    tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Autre'],
+    clubs: [
+      { id: 'Aventurier', label: 'Aventurier', desc: '4 à 9 ans' },
+      { id: 'Eclaireur', label: 'Éclaireur', desc: '10 à 15 ans' },
+      { id: 'Ambassadeur', label: 'Ambassadeur', desc: '16 à 21 ans' },
+      { id: 'Aine', label: 'Aîné', desc: '22 ans et +' },
+      { id: 'Chef Guide', label: 'Chef Guide', desc: 'Cadre' },
+      { id: 'Leader de Jeunesse', label: 'Leader de Jeunesse', desc: 'Leader' },
+      { id: 'Autre', label: 'Autre', desc: 'Non précisé' },
+    ],
+    formTitle: "Formulaire d'inscription",
+    formSubtitle: "Veuillez renseigner vos informations personnelles pour réserver votre place.",
+  },
 };
 
 export default function App() {
@@ -280,7 +297,7 @@ export default function App() {
   };
 
   // Upload Proof of payment and finalize registration
-  const handleUploadProofAndSubmit = async (file: File): Promise<boolean> => {
+  const handleUploadProofAndSubmit = async (file: File, transactionPhone?: string): Promise<boolean> => {
     if (!registration) return false;
     setIsSubmitting(true);
     setGlobalError(null);
@@ -288,6 +305,9 @@ export default function App() {
     const bodyFormData = new FormData();
     bodyFormData.append('proof', file);
     bodyFormData.append('registrationId', registration.id);
+    if (transactionPhone) {
+      bodyFormData.append('transactionPhone', transactionPhone);
+    }
 
     try {
       const res = await fetch('/api/registration/upload-proof', {
@@ -380,6 +400,7 @@ export default function App() {
             lastSavedText={lastSavedText}
             isSaving={isSaving}
             onShareClick={() => setShowShareModal(true)}
+            formConfig={settings.formConfig}
           />
         )}
 
