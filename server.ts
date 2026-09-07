@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import * as XLSX from 'xlsx';
-import { dbService, initializeAdminFromEnv, DEFAULT_OFFICIAL_DISTRICTS } from './server/db.js';
+import { dbService, initializeAdminFromEnv, DEFAULT_OFFICIAL_DISTRICTS, DEFAULT_FORM_CONFIG } from './server/db.js';
 
 dotenv.config();
 
@@ -46,6 +46,33 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('Format de fichier non supporté. Utilisez JPG, PNG ou PDF.'));
+    }
+  },
+});
+
+// Multer for CMS Header Banners and Logos
+const bannerStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, UPLOADS_DIR);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const safeBase = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `cms-${uniqueSuffix}-${safeBase}${ext}`);
+  },
+});
+
+const uploadBanner = multer({
+  storage: bannerStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Format non supporté. Veuillez sélectionner une image (PNG, JPG, WEBP, SVG).'));
     }
   },
 });
@@ -90,7 +117,7 @@ app.get('/api/settings', (_req: Request, res: Response) => {
     paymentAmount: settings.paymentAmount || '5 050 FCFA',
     waveLink: (settings.waveLink && settings.waveLink !== 'https://wave.com') ? settings.waveLink : PERMANENT_OFFICIAL_WAVE_URL,
     waveRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
-    waveNumber: settings.waveNumber || '+225 0769343626',
+    waveNumber: settings.waveNumber || '0769343626',
     momoNumber: settings.momoNumber || '0769343626',
     momoRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
     generalInstructions: settings.generalInstructions,
@@ -141,47 +168,100 @@ app.post('/api/registration/submit-form', (req: Request, res: Response) => {
     return;
   }
 
+  const formCfg = dbService.getFormConfig();
+
   // Basic validations
-  if (!formData.fullName || formData.fullName.trim().length < 3) {
-    res.status(400).json({ error: 'Le Nom et Prénoms sont obligatoires (au moins 3 caractères).' });
-    return;
-  }
-  if (!formData.church || formData.church.trim().length < 2) {
-    res.status(400).json({ error: "L'église d'appartenance est obligatoire." });
-    return;
-  }
-  if (!formData.contact || formData.contact.trim().length < 8) {
-    res.status(400).json({ error: 'Un numéro de contact valide (+225) est obligatoire.' });
-    return;
-  }
-  if (!formData.district) {
-    res.status(400).json({ error: 'Le District est obligatoire.' });
-    return;
-  }
-  if (formData.district === 'Autre' && !formData.districtOther?.trim()) {
-    res.status(400).json({ error: 'Veuillez préciser votre District.' });
-    return;
-  }
-  if (!formData.club) {
-    res.status(400).json({ error: 'Le Club est obligatoire.' });
-    return;
-  }
-  if (formData.club === 'Autre' && !formData.clubOther?.trim()) {
-    res.status(400).json({ error: 'Veuillez préciser votre Club.' });
-    return;
-  }
-  if (formData.hasIllness === 'Oui' && !formData.illnessDetails?.trim()) {
-    res.status(400).json({ error: 'Veuillez préciser la nature de votre maladie ou allergie.' });
+  if (!formData.fullName || formData.fullName.trim().length < 2) {
+    res.status(400).json({ error: 'Le Nom et Prénoms sont obligatoires (au moins 2 caractères).' });
     return;
   }
 
-  // Anti-duplicate phone check
-  const isDuplicate = dbService.checkDuplicateContact(formData.contact, registrationId);
-  if (isDuplicate) {
-    res.status(409).json({
-      error: 'Une inscription avec ce numéro de contact est déjà enregistrée ou en cours de vérification.',
-    });
-    return;
+  // Church field validation if enabled and required
+  if (formCfg.enableChurchField !== false && formCfg.requireChurchField !== false) {
+    if (!formData.church || formData.church.trim().length < 2) {
+      res.status(400).json({ error: "L'église ou structure de provenance est obligatoire." });
+      return;
+    }
+  }
+
+  // Contact field validation if enabled
+  if (formCfg.enableContactField !== false) {
+    if (!formData.contact || formData.contact.trim().length < 6) {
+      res.status(400).json({ error: 'Un numéro de contact valide est obligatoire.' });
+      return;
+    }
+  }
+
+  // District validation if enabled
+  if (formCfg.enableDistrictField !== false) {
+    if (!formData.district) {
+      res.status(400).json({ error: 'Le District est obligatoire.' });
+      return;
+    }
+    if (formData.district === 'Autre' && !formData.districtOther?.trim()) {
+      res.status(400).json({ error: 'Veuillez préciser votre District.' });
+      return;
+    }
+  }
+
+  // Club validation if enabled
+  if (formCfg.enableClubField !== false) {
+    if (!formData.club) {
+      res.status(400).json({ error: 'Le Club ou groupe est obligatoire.' });
+      return;
+    }
+    if (formData.club === 'Autre' && !formData.clubOther?.trim()) {
+      res.status(400).json({ error: 'Veuillez préciser votre Club.' });
+      return;
+    }
+  }
+
+  // Tshirt validation if enabled and required
+  if (formCfg.enableTshirtField !== false && formCfg.requireTshirt) {
+    if (!formData.tshirtSize) {
+      res.status(400).json({ error: 'Veuillez sélectionner une taille de tee-shirt.' });
+      return;
+    }
+    if (formData.tshirtSize === 'Autre' && !formData.tshirtSizeOther?.trim()) {
+      res.status(400).json({ error: 'Veuillez préciser votre taille de tee-shirt.' });
+      return;
+    }
+  }
+
+  // Medical illness validation if enabled
+  if (formCfg.enableIllnessField !== false) {
+    if (formCfg.requireIllnessField && !formData.hasIllness) {
+      res.status(400).json({ error: 'Veuillez indiquer si vous avez des antécédents médicaux ou allergies.' });
+      return;
+    }
+    if (formData.hasIllness === 'Oui' && !formData.illnessDetails?.trim()) {
+      res.status(400).json({ error: 'Veuillez préciser la nature de votre maladie ou allergie.' });
+      return;
+    }
+  }
+
+  // Custom Fields validation
+  if (formCfg.customFields && Array.isArray(formCfg.customFields)) {
+    for (const field of formCfg.customFields) {
+      if (field.required) {
+        const val = formData.customFields?.[field.id];
+        if (val === undefined || val === null || (typeof val === 'string' && !val.trim())) {
+          res.status(400).json({ error: `Le champ « ${field.label} » est obligatoire.` });
+          return;
+        }
+      }
+    }
+  }
+
+  // Anti-duplicate phone check (if contact enabled)
+  if (formCfg.enableContactField !== false && formData.contact) {
+    const isDuplicate = dbService.checkDuplicateContact(formData.contact, registrationId);
+    if (isDuplicate) {
+      res.status(409).json({
+        error: 'Une inscription avec ce numéro de contact est déjà enregistrée ou en cours de vérification.',
+      });
+      return;
+    }
   }
 
   const record = dbService.createOrUpdateRegistrationFromForm(sessionId, formData, registrationId);
@@ -420,14 +500,57 @@ app.get('/api/admin/form-config', requireAdminAuth, (_req: AuthRequest, res: Res
 // Update Form CMS Configuration (Admin)
 app.put('/api/admin/form-config', requireAdminAuth, (req: AuthRequest, res: Response) => {
   try {
-    const updatedConfig = dbService.updateFormConfig(req.body);
+    const payload = req.body.formConfig || req.body;
+    const updatedConfig = dbService.updateFormConfig(payload);
     res.json({
       success: true,
-      message: 'Configuration du formulaire mise à jour avec succès.',
+      message: 'Configuration du formulaire enregistrée et publiée en direct avec succès.',
       config: updatedConfig,
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message || 'Erreur lors de la mise à jour de la configuration.' });
+  }
+});
+
+// Upload CMS Asset (Header banner or logo)
+app.post('/api/admin/upload-banner', requireAdminAuth, uploadBanner.single('image'), (req: Request, res: Response) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'Aucun fichier image sélectionné.' });
+    return;
+  }
+  const fileUrl = `/api/public/assets/${req.file.filename}`;
+  res.json({
+    success: true,
+    url: fileUrl,
+    filename: req.file.filename,
+    originalName: req.file.originalname,
+  });
+});
+
+// Public route to serve CMS assets (banners & logos)
+app.get('/api/public/assets/:filename', (req: Request, res: Response) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).send('Image non trouvée.');
+    return;
+  }
+  res.sendFile(filePath);
+});
+
+// Reset Form Configuration to a specific template or default
+app.post('/api/admin/form-config/reset', requireAdminAuth, (req: AuthRequest, res: Response) => {
+  try {
+    const { templateConfig } = req.body;
+    const targetConfig = templateConfig || DEFAULT_FORM_CONFIG;
+    const updatedConfig = dbService.updateFormConfig(targetConfig);
+    res.json({
+      success: true,
+      message: 'Modèle de formulaire appliqué avec succès.',
+      config: updatedConfig,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la réinitialisation du formulaire.' });
   }
 });
 
@@ -514,14 +637,61 @@ app.patch('/api/admin/registrations/:id', requireAdminAuth, (req: Request, res: 
   res.json({ success: true, registration: updated });
 });
 
-// Delete an individual registration
+// Delete an individual registration permanently
 app.delete('/api/admin/registrations/:id', requireAdminAuth, (req: Request, res: Response) => {
   const deleted = dbService.deleteRegistration(req.params.id);
   if (!deleted) {
-    res.status(404).json({ error: 'Inscription introuvable ou déjà supprimée.' });
+    res.status(404).json({ error: 'Inscription introuvable ou déjà supprimée définitivement.' });
     return;
   }
-  res.json({ success: true, message: 'Inscription supprimée avec succès.' });
+  res.json({ success: true, message: 'Inscription supprimée définitivement avec succès.' });
+});
+
+// Batch Import Registrations (JSON & CSV imported records)
+app.post('/api/admin/registrations/batch-import', requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { registrations, options } = req.body;
+    if (!registrations || !Array.isArray(registrations)) {
+      res.status(400).json({ error: 'Tableau d’inscriptions requis pour l’importation.' });
+      return;
+    }
+
+    if (registrations.length === 0) {
+      res.status(400).json({ error: 'Aucune inscription fournie dans le fichier ou les données transmises.' });
+      return;
+    }
+
+    const result = dbService.batchImportRegistrations(registrations, options);
+    res.json({
+      success: true,
+      message: `${result.importedCount} nouvelle(s) inscription(s) ajoutée(s), ${result.updatedCount} mise(s) à jour.`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('Error during batch import:', err);
+    res.status(500).json({ error: err.message || 'Erreur lors de l’importation des inscriptions.' });
+  }
+});
+
+// Batch Sync Registrations from client-side persistent vault
+app.post('/api/admin/registrations/batch-sync', requireAdminAuth, (req: Request, res: Response) => {
+  try {
+    const { registrations } = req.body;
+    if (!registrations || !Array.isArray(registrations)) {
+      res.status(400).json({ error: 'Données de synchronisation invalides.' });
+      return;
+    }
+
+    const result = dbService.batchSyncRegistrations(registrations);
+    res.json({
+      success: true,
+      message: `${result.syncedCount} inscription(s) resynchronisée(s) avec succès.`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('Error during batch sync:', err);
+    res.status(500).json({ error: err.message || 'Erreur lors de la resynchronisation.' });
+  }
 });
 
 // Reset all registrations and counters to zero
@@ -559,14 +729,14 @@ app.put('/api/admin/settings', requireAdminAuth, (req: Request, res: Response) =
   const updated = dbService.updateSettings({
     waveLink: waveLink !== undefined ? String(waveLink).trim() : current.waveLink,
     waveRecipientName: waveRecipientName !== undefined ? String(waveRecipientName).trim() : (momoRecipientName || current.waveRecipientName),
-    waveNumber: waveNumber !== undefined ? String(waveNumber).trim() : (momoNumber || current.waveNumber),
+    waveNumber: '0769343626',
     paymentAmount: paymentAmount !== undefined ? String(paymentAmount).trim() : current.paymentAmount,
     generalInstructions: generalInstructions !== undefined ? String(generalInstructions).trim() : current.generalInstructions,
     eventName: eventName !== undefined ? String(eventName).trim() : current.eventName,
     eventDate: eventDate !== undefined ? String(eventDate).trim() : current.eventDate,
     eventLocation: eventLocation !== undefined ? String(eventLocation).trim() : current.eventLocation,
-    // Sync legacy keys
-    momoNumber: waveNumber !== undefined ? String(waveNumber).trim() : (momoNumber || current.waveNumber),
+    // Sync permanent numbers
+    momoNumber: '0769343626',
     momoRecipientName: waveRecipientName !== undefined ? String(waveRecipientName).trim() : (momoRecipientName || current.waveRecipientName),
     orangeMoneyLink: '',
     mtnMoMoLink: '',
@@ -722,11 +892,13 @@ app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response
     'Nom & Prénoms',
     'Église',
     'Contact',
+    'Numéro Transaction',
     'District',
     'Club',
     'Taille T-Shirt',
     'Maladie/Allergie',
     'Détails Maladie',
+    'Champs Personnalisés',
     'Statut Inscription',
     'Clic Lien Paiement',
     'Date Clic Paiement',
@@ -740,11 +912,13 @@ app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response
     `"${(r.fullName || '').replace(/"/g, '""')}"`,
     `"${(r.church || '').replace(/"/g, '""')}"`,
     `"${(r.contact || '').replace(/"/g, '""')}"`,
+    `"${(r.transactionPhone || '').replace(/"/g, '""')}"`,
     `"${r.district === 'Autre' ? (r.districtOther || 'Autre') : (r.district || '')}"`,
     `"${r.club === 'Autre' ? (r.clubOther || 'Autre') : (r.club || '')}"`,
     `"${r.tshirtSize === 'Autre' ? (r.tshirtSizeOther || 'Autre') : (r.tshirtSize || 'Non spécifié')}"`,
     `"${r.hasIllness}"`,
     `"${(r.illnessDetails || '').replace(/"/g, '""')}"`,
+    `"${r.customFields ? Object.entries(r.customFields).map(([k, v]) => `${k}: ${v}`).join(' | ').replace(/"/g, '""') : ''}"`,
     `"${r.status === 'confirmed' ? 'Confirmé' : r.status === 'pending_verification' ? 'En attente vérification' : r.status === 'rejected' ? 'Rejeté' : r.paymentClicked ? 'Paiement cliqué non soumis' : 'Brouillon'}"`,
     `"${r.paymentClicked ? 'OUI' : 'NON'}"`,
     `"${r.paymentClickedAt ? new Date(r.paymentClickedAt).toLocaleString('fr-FR') : ''}"`,

@@ -36,6 +36,8 @@ import {
   Database,
   UploadCloud,
   Smartphone,
+  Upload,
+  ShieldCheck,
 } from 'lucide-react';
 import { AdminUser, RegistrationRecord, PaymentSettings, RegistrationStatus, AdminQuotaInfo } from '../types.js';
 
@@ -47,12 +49,23 @@ import {
 } from '../utils/exportUtils.js';
 import { ShareModal } from './ShareModal.js';
 import { FormCmsTab } from './FormCmsTab.js';
+import { ImportRegistrationsModal } from './ImportRegistrationsModal.js';
+import {
+  saveToClientVault,
+  getFromClientVault,
+  findMissingOnServer,
+  pushVaultToServer,
+  downloadVaultAsJsonFile,
+  removeFromClientVault,
+  clearClientVault,
+} from '../utils/persistenceVault.js';
 
 interface AdminViewProps {
   token: string;
   currentUser: AdminUser;
   onLogout: () => void;
   onClose: () => void;
+  settings?: PaymentSettings | null;
   onSettingsUpdated?: (settings: PaymentSettings) => void;
 }
 
@@ -61,6 +74,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   currentUser,
   onLogout,
   onClose,
+  settings: initialSettings,
   onSettingsUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'inscrits' | 'relances' | 'settings' | 'admins' | 'form_cms'>('inscrits');
@@ -108,12 +122,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [resetConfirmCode, setResetConfirmCode] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
+  // Bulk Import CSV & JSON Modal
+  const [showImportModal, setShowImportModal] = useState(false);
+
+  // Persistent Vault Safeguard state
+  const [vaultRecoveryCount, setVaultRecoveryCount] = useState<number>(0);
+  const [isAutoRecovering, setIsAutoRecovering] = useState<boolean>(false);
+
   // Feedback notifications
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
 
   // Payment Settings
-  const [settings, setSettings] = useState<PaymentSettings | null>(null);
+  const [settings, setSettings] = useState<PaymentSettings | null>(initialSettings || null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    if (initialSettings) {
+      setSettings((prev) => (prev ? { ...initialSettings, ...prev } : initialSettings));
+    }
+  }, [initialSettings]);
 
   // Admin management & Quota enforcement
   const [adminList, setAdminList] = useState<AdminUser[]>([]);
@@ -311,8 +338,23 @@ export const AdminView: React.FC<AdminViewProps> = ({
         return;
       }
       const data = await res.json();
-      setRegistrations(data.registrations || []);
+      const serverList: RegistrationRecord[] = data.registrations || [];
+      setRegistrations(serverList);
       setStats(data.stats || { total: 0, confirmed: 0, pending: 0, paymentClickedPending: 0 });
+
+      // Client Vault Anti-Loss Protection
+      if (statusFilter === 'all' && clubFilter === 'all' && districtFilter === 'all' && !searchQuery) {
+        const clientVault = getFromClientVault();
+        const missingOnServer = findMissingOnServer(serverList, clientVault);
+        if (missingOnServer.length > 0 && serverList.length < clientVault.length) {
+          setVaultRecoveryCount(missingOnServer.length);
+        } else {
+          setVaultRecoveryCount(0);
+        }
+        if (serverList.length > 0) {
+          saveToClientVault(serverList);
+        }
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -361,10 +403,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   useEffect(() => {
     fetchRegistrations();
-  }, [fetchRegistrations]);
+    fetchSettings();
+  }, [fetchRegistrations, fetchSettings]);
 
   useEffect(() => {
-    if (activeTab === 'settings') fetchSettings();
+    if (activeTab === 'settings' || activeTab === 'form_cms') fetchSettings();
     if (activeTab === 'admins') fetchAdmins();
   }, [activeTab, fetchSettings, fetchAdmins]);
 
@@ -401,7 +444,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Delete single registration
+  // Delete single registration permanently
   const handleDeleteRegistration = async (id: string) => {
     setIsDeleting(true);
     try {
@@ -413,12 +456,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
+
+      // Purge permanently from client vault & local storage
+      removeFromClientVault(id);
+
+      // Immediately remove from current state
+      setRegistrations((prev) => prev.filter((r) => r.id !== id));
       setDeletingRegistration(null);
       if (editingRegistration?.id === id) {
         setEditingRegistration(null);
       }
-      setActionSuccessMsg('Inscription supprimée avec succès.');
-      setTimeout(() => setActionSuccessMsg(null), 4000);
+      setActionSuccessMsg('Inscription supprimée définitivement avec succès (base de données, sauvegardes et fichiers purgés).');
+      setTimeout(() => setActionSuccessMsg(null), 5000);
       fetchRegistrations();
     } catch (err: any) {
       alert('Erreur : ' + err.message);
@@ -427,7 +476,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Reset all registrations and counters to zero
+  // Reset all registrations and counters to zero permanently
   const handleResetAll = async () => {
     setIsResetting(true);
     try {
@@ -439,9 +488,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la réinitialisation');
+
+      // Clear client vault permanently
+      clearClientVault();
+
+      setRegistrations([]);
+      setStats({ total: 0, confirmed: 0, pending: 0, paymentClickedPending: 0 });
+      setVaultRecoveryCount(0);
       setShowResetModal(false);
       setResetConfirmCode('');
-      setActionSuccessMsg(`Compteurs réinitialisés à zéro avec succès (${data.deletedCount} inscription(s) effacée(s)).`);
+      setActionSuccessMsg(`Compteurs réinitialisés à zéro avec succès (${data.deletedCount} inscription(s) effacée(s) définitivement).`);
       setTimeout(() => setActionSuccessMsg(null), 5000);
       fetchRegistrations();
     } catch (err: any) {
@@ -629,6 +685,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
     exportSingleParticipantPDF(reg, settings);
   };
 
+  // Restore registrations from browser persistent vault
+  const handleRestoreFromVault = async () => {
+    setIsAutoRecovering(true);
+    try {
+      const result = await pushVaultToServer(token);
+      setActionSuccessMsg(`🛡️ Coffre-fort synchronisé : ${result.syncedCount} inscription(s) restaurée(s) avec succès.`);
+      setVaultRecoveryCount(0);
+      fetchRegistrations();
+    } catch (err: any) {
+      setError(err.message || 'Erreur lors de la synchronisation avec le serveur.');
+    } finally {
+      setIsAutoRecovering(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-[#383827]/60 backdrop-blur-xs flex flex-col overflow-hidden">
       <div className="flex-1 flex flex-col bg-[#f5f2ed] overflow-hidden">
@@ -800,6 +871,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <span>{exporting === 'excel' ? 'Export en cours...' : 'Excel (.xlsx)'}</span>
                 </button>
 
+                {/* Import CSV / JSON Button */}
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-all cursor-pointer"
+                  title="Importer rapidement des inscrits depuis un fichier CSV, JSON ou Excel"
+                >
+                  <Upload className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>Importer (CSV / JSON)</span>
+                </button>
+
                 {/* Direct PDF Landscape Export */}
                 <button
                   onClick={() => handleExportPDF('filtered')}
@@ -820,6 +901,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 >
                   <Database className="w-3.5 h-3.5 text-amber-300" />
                   <span>{isDownloadingBackup ? 'Sauvegarde...' : 'Sauvegarde JSON'}</span>
+                </button>
+
+                {/* Client Vault Download */}
+                <button
+                  onClick={() => downloadVaultAsJsonFile()}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-xs font-semibold text-stone-700 bg-white hover:bg-[#f5f2ed] border border-stone-200 transition-all cursor-pointer shadow-2xs"
+                  title="Télécharger le coffre-fort local de sauvegarde du navigateur"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Coffre Local</span>
                 </button>
 
                 {/* Sync from Production Button */}
@@ -854,6 +945,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Vault Recovery Banner if client vault has records missing on server */}
+          {vaultRecoveryCount > 0 && (
+            <div className="mb-3 p-3.5 bg-amber-50 border border-amber-300 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs text-amber-950 shadow-2xs animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <Shield className="w-5 h-5 text-amber-700 shrink-0" />
+                <div>
+                  <span className="font-bold">Coffre-fort local sécurisé :</span> {vaultRecoveryCount} inscription(s) présente(s) dans votre sauvegarde locale sécurisée ne sont pas sur le serveur.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRestoreFromVault}
+                disabled={isAutoRecovering}
+                className="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-lg shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {isAutoRecovering ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
+                Restaurer sur le serveur
+              </button>
+            </div>
+          )}
 
           {/* Action Success Toast / Banner */}
           {actionSuccessMsg && (
@@ -1180,61 +1292,49 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Nom du titulaire / compte Wave
-                    </label>
-                    <input
-                      type="text"
-                      value={settings.waveRecipientName || settings.momoRecipientName || ''}
-                      onChange={(e) => setSettings({ ...settings, waveRecipientName: e.target.value, momoRecipientName: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                      Numéro Wave officiel (Affiché en complément)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="+225 07 00 00 00 00"
-                      value={settings.waveNumber || ''}
-                      onChange={(e) => setSettings({ ...settings, waveNumber: e.target.value })}
-                      className="w-full px-3 py-2 border border-stone-300 rounded-xl text-xs font-mono text-stone-900 focus:ring-2 focus:ring-amber-200"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
+                    Nom du titulaire / compte Wave
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.waveRecipientName || settings.momoRecipientName || ''}
+                    onChange={(e) => setSettings({ ...settings, waveRecipientName: e.target.value, momoRecipientName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-stone-300 rounded-xl text-xs text-stone-900 focus:ring-2 focus:ring-amber-200"
+                  />
                 </div>
 
-                {/* Permanent optional payment number box */}
-                <div className="p-4 rounded-xl bg-amber-50/80 border border-amber-200 space-y-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider">
-                      Numéro de paiement optionnel permanent (0769343626)
-                    </label>
+                {/* Permanent official Wave payment number (0769343626) */}
+                <div className="p-4 rounded-xl bg-amber-50/90 border border-amber-200 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <div className="flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-amber-800" />
+                      <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider">
+                        Numéro Wave officiel permanent : 0769343626
+                      </label>
+                    </div>
                     <span className="text-[10px] font-bold bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded-full inline-block">
-                      Enregistré & Permanent
+                      Inscrit de manière permanente
                     </span>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       type="text"
-                      value={settings.momoNumber || '0769343626'}
-                      onChange={(e) => setSettings({ ...settings, momoNumber: e.target.value })}
+                      value={settings.waveNumber || settings.momoNumber || '0769343626'}
+                      onChange={(e) => setSettings({ ...settings, waveNumber: e.target.value, momoNumber: e.target.value })}
                       placeholder="0769343626"
                       className="flex-1 px-3.5 py-2 border border-amber-300 rounded-xl text-xs font-mono font-bold text-stone-900 bg-white focus:ring-2 focus:ring-amber-300 focus:outline-none shadow-2xs"
                     />
                     <button
                       type="button"
-                      onClick={() => setSettings({ ...settings, momoNumber: '0769343626' })}
+                      onClick={() => setSettings({ ...settings, waveNumber: '0769343626', momoNumber: '0769343626' })}
                       className="px-3.5 py-2 text-xs font-bold text-amber-900 bg-amber-200 hover:bg-amber-300 rounded-xl transition-colors cursor-pointer shrink-0"
                     >
                       Rétablir 0769343626
                     </button>
                   </div>
                   <p className="text-[11px] text-amber-800">
-                    Ce numéro optionnel permanent est conservé sur le tableau de bord et dans la base de données. Il permet de recevoir des paiements directs Wave ou transferts mobiles alternatifs.
+                    Ce numéro officiel Wave (0769343626) est inscrit de manière permanente sur la plateforme et dans la base de données pour la réception et la validation des paiements Wave.
                   </p>
                 </div>
 
@@ -1600,11 +1700,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <div className="flex-1 overflow-auto max-w-5xl w-full">
               <FormCmsTab
                 token={token}
-                initialConfig={settings.formConfig}
+                initialConfig={settings?.formConfig || initialSettings?.formConfig}
                 onConfigSaved={(updatedConfig) => {
-                  setSettings(prev => ({ ...prev, formConfig: updatedConfig }));
+                  setSettings(prev => (prev ? { ...prev, formConfig: updatedConfig } : (initialSettings ? { ...initialSettings, formConfig: updatedConfig } : ({ formConfig: updatedConfig } as PaymentSettings))));
                   if (onSettingsUpdated) {
-                    onSettingsUpdated({ ...settings, formConfig: updatedConfig });
+                    const merged = settings || initialSettings;
+                    onSettingsUpdated(merged ? { ...merged, formConfig: updatedConfig } : ({ formConfig: updatedConfig } as PaymentSettings));
                   }
                 }}
               />
@@ -2043,21 +2144,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <Trash2 className="w-6 h-6 text-rose-600" />
               </div>
               <div>
-                <h4 className="text-base font-bold text-stone-900">Supprimer l'inscription</h4>
-                <p className="text-xs text-stone-500">Action irréversible</p>
+                <h4 className="text-base font-bold text-stone-900">Suppression définitive</h4>
+                <p className="text-xs text-rose-600 font-semibold">Action irréversible & permanente</p>
               </div>
             </div>
 
             <p className="text-xs text-stone-700 leading-relaxed">
-              Êtes-vous sûr de vouloir supprimer définitivement l'inscription de{' '}
+              Êtes-vous certain de vouloir supprimer définitivement l'inscription de{' '}
               <strong className="text-stone-900 font-bold">{deletingRegistration.fullName}</strong>{' '}
               (Réf : <span className="font-mono text-amber-800 font-bold">{deletingRegistration.id}</span>) ?
             </p>
 
-            <div className="p-3 bg-stone-50 rounded-xl text-[11px] text-stone-600 space-y-1">
+            <div className="p-3.5 bg-rose-50/70 border border-rose-100 rounded-2xl text-[11px] text-stone-700 space-y-1.5">
               <div>• <strong>Contact :</strong> {deletingRegistration.contact}</div>
               <div>• <strong>Club / Église :</strong> {deletingRegistration.club} - {deletingRegistration.church}</div>
-              <div>• Le fichier de preuve sera également effacé et les compteurs seront automatiquement recalculés.</div>
+              <div className="text-rose-700 font-medium pt-1 border-t border-rose-200/60">
+                • Le dossier sera <strong>définitivement purgé</strong> de la base de données, des sauvegardes automatiques, du grand livre et du coffre-fort local.
+              </div>
+              <div className="text-rose-700 font-medium">
+                • Le fichier de preuve de paiement sera détruit du serveur et les compteurs recalculés.
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
@@ -2076,7 +2182,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs transition-colors disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? 'Suppression...' : 'Confirmer la suppression'}</span>
+                <span>{isDeleting ? 'Suppression définitive...' : 'Supprimer définitivement'}</span>
               </button>
             </div>
           </div>
@@ -2395,6 +2501,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
         onClose={() => setShowShareModal(false)}
         eventName={settings?.eventName || 'Randonnée 2026'}
         eventDate={settings?.eventDate || 'Dimanche 15 Novembre 2026'}
+      />
+
+      {/* Bulk Import Modal (CSV / JSON) */}
+      <ImportRegistrationsModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        token={token}
+        existingRegistrations={registrations}
+        onImportSuccess={(imported, updated) => {
+          setActionSuccessMsg(
+            `Importation réussie : ${imported} nouvelle(s) inscription(s) ajoutée(s), ${updated} mise(s) à jour.`
+          );
+          fetchRegistrations();
+        }}
       />
     </div>
   );

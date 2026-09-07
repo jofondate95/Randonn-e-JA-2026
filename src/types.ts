@@ -30,6 +30,7 @@ export interface RegistrationFormData {
   tshirtSizeOther?: string;
   hasIllness: 'Oui' | 'Non' | '';
   illnessDetails?: string;
+  customFields?: Record<string, any>;
 }
 
 export interface RegistrationRecord extends RegistrationFormData {
@@ -58,6 +59,35 @@ export interface FormClubOption {
   desc: string;
 }
 
+export interface FormCustomField {
+  id: string;
+  label: string;
+  type: 'text' | 'tel' | 'email' | 'number' | 'select' | 'radio' | 'textarea' | 'date' | 'checkbox';
+  placeholder?: string;
+  helpText?: string;
+  required: boolean;
+  options?: string[]; // for select and radio
+  defaultValue?: string;
+}
+
+export interface FormThemeConfig {
+  primaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  cardBackgroundColor: string;
+  textColor: string;
+  borderRadius: 'rounded-none' | 'rounded-xl' | 'rounded-2xl' | 'rounded-3xl';
+}
+
+export interface FormHeaderConfig {
+  showBanner: boolean;
+  bannerUrl: string;
+  bannerHeight: 'compact' | 'medium' | 'tall';
+  bannerOverlayOpacity: number; // 0 to 80%
+  logoUrl?: string;
+  logoPosition?: 'left' | 'center';
+}
+
 export const DEFAULT_OFFICIAL_DISTRICTS: string[] = [
   'District du Phare',
   'District 2',
@@ -76,16 +106,54 @@ export const DEFAULT_OFFICIAL_DISTRICTS: string[] = [
 ];
 
 export interface FormConfig {
+  // Appearance & Header
+  theme: FormThemeConfig;
+  header: FormHeaderConfig;
+
+  // Header Texts
+  formTitle: string;
+  formSubtitle: string;
+  bannerNotice: string;
+  termsNotice: string;
+  submitButtonText?: string;
+
+  // Districts Field
+  enableDistrictField?: boolean;
+  allowDistrictOther?: boolean;
   districts: string[];
-  tshirtSizes: string[];
+
+  // Clubs Field
+  enableClubField?: boolean;
+  allowClubOther?: boolean;
   clubs: FormClubOption[];
-  churches?: string[];
+
+  // T-Shirt Field
+  enableTshirtField?: boolean;
   requireTshirt?: boolean;
+  allowTshirtOther?: boolean;
+  tshirtSizes: string[];
+
+  // Church / Organisation Field
+  enableChurchField?: boolean;
+  requireChurchField?: boolean;
+  churchLabel?: string;
+  churches?: string[];
+
+  // Contact Field
+  enableContactField?: boolean;
+  contactLabel?: string;
+
+  // Medical / Illness Field
   enableIllnessField?: boolean;
-  bannerNotice?: string;
-  formTitle?: string;
-  formSubtitle?: string;
-  termsNotice?: string;
+  requireIllnessField?: boolean;
+  illnessLabel?: string;
+  illnessHelpText?: string;
+
+  // Custom Fields (Add any field from scratch)
+  customFields?: FormCustomField[];
+
+  // Current Template Identifier
+  templateId?: 'banco_hike' | 'church_event' | 'youth_camp' | 'blank' | 'custom';
 }
 
 export interface PaymentSettings {

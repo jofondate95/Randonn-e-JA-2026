@@ -71,23 +71,12 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
   };
 
   const handleTriggerFileInput = () => {
-    if (!transactionPhone.trim()) {
-      setUploadError("Veuillez d'abord renseigner le numéro ayant servi à la transaction ci-dessus avant d'importer la preuve.");
-      phoneInputRef.current?.focus();
-      return;
-    }
     fileInputRef.current?.click();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (!transactionPhone.trim()) {
-      setUploadError("Veuillez d'abord renseigner le numéro ayant servi à la transaction avant d'importer l'image.");
-      phoneInputRef.current?.focus();
-      return;
-    }
 
     // Validate size: max 10MB
     if (file.size > 10 * 1024 * 1024) {
@@ -226,6 +215,9 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
                 <div className="text-xs text-stone-600">
                   Bénéficiaire officiel : <strong className="text-stone-900">{waveRecipient}</strong>
                 </div>
+                <div className="text-xs text-stone-600 mt-0.5">
+                  Numéro Wave officiel : <strong className="font-mono text-[#1DC2EC] font-bold">{settings.waveNumber || settings.momoNumber || '0769343626'}</strong>
+                </div>
               </div>
             </div>
 
@@ -234,9 +226,20 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
                 Montant à régler
               </span>
               <div className="text-2xl sm:text-3xl font-serif italic font-bold text-sky-950">
-                {settings.paymentAmount || '5 000 FCFA'}
+                {settings.paymentAmount || '5 050 FCFA'}
               </div>
             </div>
+          </div>
+
+          {/* Instruction essentielle mise en grand en gras demandée par l'utilisateur */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/90 border-2 border-amber-400 shadow-sm text-amber-950 space-y-2">
+            <div className="flex items-center gap-2 text-amber-800 font-extrabold text-[11px] uppercase tracking-wider">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span>Consigne importante de validation</span>
+            </div>
+            <p className="text-base sm:text-lg md:text-xl font-black leading-snug tracking-tight text-amber-950">
+              Payez par Wave, faite la capture d'écran après la transaction, revenez ici pour insérer L'image et valider définitivement votre inscription
+            </p>
           </div>
 
           {/* Primary Action: Direct Wave link click */}
@@ -246,7 +249,7 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
               target="_blank"
               rel="noopener noreferrer"
               onClick={handlePaymentLinkClick}
-              className="w-full py-4.5 px-6 rounded-2xl bg-[#1DC2EC] hover:bg-[#18add4] text-white font-bold text-base sm:text-lg flex items-center justify-center gap-3 shadow-lg shadow-[#1DC2EC]/35 transition-all transform active:scale-[0.99] cursor-pointer text-center no-underline"
+              className="w-full py-4.5 px-6 rounded-2xl bg-[#1DC2EC] hover:bg-[#18add4] text-white font-black text-base sm:text-lg flex items-center justify-center gap-3 shadow-lg shadow-[#1DC2EC]/35 transition-all transform active:scale-[0.99] cursor-pointer text-center no-underline"
             >
               <Smartphone className="w-6 h-6 shrink-0" />
               <span>Payer avec Wave ({settings.paymentAmount || '5 050 FCFA'})</span>
@@ -344,11 +347,11 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
             {transactionPhone.trim() ? (
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Numéro de transaction vérifié : <strong className="font-mono">{transactionPhone.trim()}</strong></span>
+                <span>Numéro Wave de la transaction : <strong className="font-mono">{transactionPhone.trim()}</strong></span>
               </div>
             ) : (
-              <div className="text-[11px] text-[#D2691E] italic">
-                * Vous devez saisir ce numéro ci-dessus avant de pouvoir importer l'image de preuve.
+              <div className="text-[11px] text-[#D2691E] font-medium">
+                * Renseignez le numéro utilisé pour le paiement Wave ci-dessus afin de faciliter la vérification.
               </div>
             )}
           </div>
@@ -358,9 +361,7 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
             <div
               onClick={handleTriggerFileInput}
               className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all hover:border-[#D2691E] hover:bg-[#f5f2ed]/60 ${
-                !transactionPhone.trim()
-                  ? 'border-stone-300 bg-stone-50/70 hover:border-amber-400'
-                  : uploadError
+                uploadError
                   ? 'border-red-400 bg-red-50/20'
                   : 'border-[#5A5A40]/30 bg-[#f5f2ed]/40'
               }`}
@@ -376,9 +377,7 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
                 <Upload className="w-5 h-5 text-[#D2691E]" />
               </div>
               <div className="text-sm font-bold text-[#2d2d2a]">
-                {!transactionPhone.trim()
-                  ? "Saisissez d'abord le numéro de transaction ci-dessus pour importer la preuve"
-                  : 'Cliquez pour importer votre capture ou déposez-la ici'}
+                Cliquez pour insérer la capture d'écran Wave ou déposez-la ici
               </div>
               <div className="text-xs text-[#7a7a72] mt-1">Formats acceptés : JPG, PNG, WEBP ou PDF (max 10 Mo)</div>
             </div>

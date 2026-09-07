@@ -15,6 +15,7 @@ import {
   RegistrationStep,
   AdminUser,
 } from './types.js';
+import { TEMPLATE_BANCO_HIKE } from './utils/formTemplates.js';
 
 const STORAGE_SESSION_KEY = 'randonnee_2026_session_id';
 const STORAGE_DRAFT_KEY = 'randonnee_2026_draft_data';
@@ -46,7 +47,7 @@ const DEFAULT_SETTINGS: PaymentSettings = {
   paymentAmount: '5 050 FCFA',
   waveLink: PERMANENT_OFFICIAL_WAVE_LINK,
   waveRecipientName: 'Comité Randonnée Banco 2026',
-  waveNumber: '+225 0769343626',
+  waveNumber: '0769343626',
   orangeMoneyLink: '',
   mtnMoMoLink: '',
   generalInstructions:
@@ -54,21 +55,7 @@ const DEFAULT_SETTINGS: PaymentSettings = {
   eventDate: 'Dimanche 15 Novembre 2026',
   eventLocation: 'Forêt du Banco, Abidjan',
   eventName: 'Randonnée 2026',
-  formConfig: {
-    districts: DEFAULT_OFFICIAL_DISTRICTS,
-    tshirtSizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Autre'],
-    clubs: [
-      { id: 'Aventurier', label: 'Aventurier', desc: '4 à 9 ans' },
-      { id: 'Eclaireur', label: 'Éclaireur', desc: '10 à 15 ans' },
-      { id: 'Ambassadeur', label: 'Ambassadeur', desc: '16 à 21 ans' },
-      { id: 'Aine', label: 'Aîné', desc: '22 ans et +' },
-      { id: 'Chef Guide', label: 'Chef Guide', desc: 'Cadre' },
-      { id: 'Leader de Jeunesse', label: 'Leader de Jeunesse', desc: 'Leader' },
-      { id: 'Autre', label: 'Autre', desc: 'Non précisé' },
-    ],
-    formTitle: "Formulaire d'inscription",
-    formSubtitle: "Veuillez renseigner vos informations personnelles pour réserver votre place.",
-  },
+  formConfig: TEMPLATE_BANCO_HIKE,
 };
 
 export default function App() {
@@ -156,7 +143,13 @@ export default function App() {
     fetch('/api/settings')
       .then((res) => res.json())
       .then((data) => {
-        if (data) setSettings(data);
+        if (data && typeof data === 'object') {
+          setSettings((prev) => ({
+            ...prev,
+            ...data,
+            formConfig: data.formConfig || prev.formConfig,
+          }));
+        }
       })
       .catch((e) => console.error('Error loading settings', e));
 
@@ -400,7 +393,7 @@ export default function App() {
             lastSavedText={lastSavedText}
             isSaving={isSaving}
             onShareClick={() => setShowShareModal(true)}
-            formConfig={settings.formConfig}
+            formConfig={settings?.formConfig}
           />
         )}
 
@@ -478,6 +471,7 @@ export default function App() {
         <AdminView
           token={adminToken}
           currentUser={adminUser}
+          settings={settings}
           onLogout={handleAdminLogout}
           onClose={() => setShowAdminDashboard(false)}
           onSettingsUpdated={(newSettings) => setSettings(newSettings)}

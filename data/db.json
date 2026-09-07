@@ -3,11 +3,199 @@
     "paymentAmount": "5 050 FCFA",
     "waveLink": "https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050",
     "waveRecipientName": "Comité Randonnée Banco 2026",
-    "waveNumber": "+225 07 58 42 10 90",
+    "waveNumber": "0769343626",
+    "momoNumber": "0769343626",
+    "momoRecipientName": "Comité Randonnée Banco 2026",
     "generalInstructions": "Veuillez effectuer votre paiement exclusivement par Wave via le lien sécurisé direct ci-dessous. Dès que votre transfert est effectué, importez votre capture d'écran de confirmation Wave.",
     "eventDate": "Dimanche 15 Novembre 2026",
     "eventLocation": "Forêt du Banco, Abidjan",
-    "eventName": "Randonnée 2026"
+    "eventName": "Randonnée 2026",
+    "formConfig": {
+      "templateId": "banco_hike",
+      "theme": {
+        "primaryColor": "#5A5A40",
+        "accentColor": "#D2691E",
+        "backgroundColor": "#f5f2ed",
+        "cardBackgroundColor": "#ffffff",
+        "textColor": "#2d2d2a",
+        "borderRadius": "rounded-3xl"
+      },
+      "header": {
+        "showBanner": true,
+        "bannerUrl": "https://images.unsplash.com/photo-1448375240586-882707db888b?q=80&w=1600&auto=format&fit=crop",
+        "bannerHeight": "medium",
+        "bannerOverlayOpacity": 35,
+        "logoPosition": "center"
+      },
+      "formTitle": "Inscription Officielle - Randonnée 2026",
+      "formSubtitle": "Forêt du Banco • Dimanche 15 Novembre 2026",
+      "bannerNotice": "",
+      "termsNotice": "En vous inscrivant, vous attestez être médicalement apte à participer à la randonnée en milieu naturel.",
+      "submitButtonText": "Continuer vers le Paiement (5 050 FCFA)",
+      "enableDistrictField": true,
+      "allowDistrictOther": true,
+      "districts": [
+        "District du Phare",
+        "District 2",
+        "District 3",
+        "District 4",
+        "District 5",
+        "District de la Me (Adzope)",
+        "District d’Agboville",
+        "District de Bonoua",
+        "District de Songon",
+        "District de Pole Maritime",
+        "District d’Aboisso",
+        "District d’Abengourou",
+        "District KM 17",
+        "Autre"
+      ],
+      "enableClubField": true,
+      "allowClubOther": true,
+      "clubs": [
+        {
+          "id": "Aventurier",
+          "label": "Aventurier",
+          "desc": "6 à 9 ans"
+        },
+        {
+          "id": "Éclaireur",
+          "label": "Éclaireur",
+          "desc": "10 à 15 ans"
+        },
+        {
+          "id": "Ambassadeur",
+          "label": "Ambassadeur",
+          "desc": "16 à 21 ans"
+        },
+        {
+          "id": "Aîné",
+          "label": "Aîné",
+          "desc": "Jeunes Adultes"
+        },
+        {
+          "id": "Chef Guide",
+          "label": "Chef Guide",
+          "desc": "Cadres & Formateurs"
+        },
+        {
+          "id": "Leader de Jeunesse",
+          "label": "Leader de Jeunesse",
+          "desc": "Responsables"
+        },
+        {
+          "id": "Autre",
+          "label": "Autre",
+          "desc": "Sympathisant / Invité"
+        }
+      ],
+      "enableTshirtField": true,
+      "requireTshirt": true,
+      "allowTshirtOther": true,
+      "tshirtSizes": [
+        "XS",
+        "S",
+        "M",
+        "L",
+        "XL",
+        "XXL",
+        "Sur-mesure",
+        "Autre"
+      ],
+      "enableChurchField": true,
+      "requireChurchField": true,
+      "churchLabel": "Église locale ou Paroisse",
+      "churches": [
+        "Temple du Jubilé (Cocody)",
+        "Béthel (Yopougon)",
+        "Maranatha (Treichville)",
+        "Philadelphie (Abobo)",
+        "Salem (Port-Bouët)"
+      ],
+      "enableContactField": true,
+      "contactLabel": "Numéro de Téléphone (Contact / WhatsApp)",
+      "enableIllnessField": true,
+      "requireIllnessField": false,
+      "illnessLabel": "Avez-vous des antécédents médicaux, allergies ou problème de santé ?",
+      "illnessHelpText": "Précisez asthme, diabète, allergies, blessures récentes ou traitement particulier pour les secouristes.",
+      "customFields": [],
+      "formConfig": {
+        "districts": [
+          "District du Phare",
+          "District 2",
+          "District 3",
+          "District 4",
+          "District 5",
+          "District de la Me (Adzope)",
+          "District d’Agboville",
+          "District de Bonoua",
+          "District de Songon",
+          "District de Pole Maritime",
+          "District d’Aboisso",
+          "District d’Abengourou",
+          "District KM 17",
+          "Autre"
+        ],
+        "tshirtSizes": [
+          "XS",
+          "S",
+          "M",
+          "L",
+          "XL",
+          "XXL",
+          "Sur-mesure",
+          "Autre"
+        ],
+        "clubs": [
+          {
+            "id": "Aventurier",
+            "label": "Aventurier",
+            "desc": "6 à 9 ans"
+          },
+          {
+            "id": "Éclaireur",
+            "label": "Éclaireur",
+            "desc": "10 à 15 ans"
+          },
+          {
+            "id": "Ambassadeur",
+            "label": "Ambassadeur",
+            "desc": "16 à 21 ans"
+          },
+          {
+            "id": "Aîné",
+            "label": "Aîné",
+            "desc": "Jeunes Adultes"
+          },
+          {
+            "id": "Chef Guide",
+            "label": "Chef Guide",
+            "desc": "Cadres & Formateurs"
+          },
+          {
+            "id": "Leader de Jeunesse",
+            "label": "Leader de Jeunesse",
+            "desc": "Responsables"
+          },
+          {
+            "id": "Autre",
+            "label": "Autre",
+            "desc": "Sympathisant / Invité"
+          }
+        ],
+        "bannerNotice": "",
+        "formTitle": "Inscription Officielle - Randonnée 2026",
+        "formSubtitle": "Forêt du Banco • Dimanche 15 Novembre 2026",
+        "termsNotice": "En vous inscrivant, vous attestez être médicalement apte à participer à la randonnée en milieu naturel.",
+        "churches": [
+          "Temple du Jubilé (Cocody)",
+          "Béthel (Yopougon)",
+          "Maranatha (Treichville)",
+          "Philadelphie (Abobo)",
+          "Salem (Port-Bouët)"
+        ]
+      }
+    }
   },
   "admins": [
     {
@@ -16,6 +204,14 @@
       "role": "superadmin",
       "passwordHash": "$2b$10$gyMhp44sFQVpKf.KDOSqPujc/p23/64CgK6Yfl7F5iwSyEC1Z1r82",
       "createdAt": "2026-09-04T13:43:45.383Z"
+    },
+    {
+      "id": "admin-raphkoua-3626",
+      "email": "raphkoua@gmail.com",
+      "role": "admin",
+      "passwordHash": "$2b$10$NsNaEp6r32Ab1q90xYTFhOL3F/gEr9rfi39UJHgB1HtHH6u0VDJuy",
+      "createdAt": "2026-09-07T00:29:47.684Z",
+      "lastLogin": "2026-09-07T00:44:22.812Z"
     }
   ],
   "registrations": [
@@ -67,7 +263,7 @@
         "updatedAt": "2026-09-04T13:49:26.266Z"
       },
       "step": "proof",
-      "updatedAt": "2026-09-05T15:47:47.870Z",
+      "updatedAt": "2026-09-07T17:28:54.617Z",
       "registrationId": "BANCO-2026-9175"
     }
   }
