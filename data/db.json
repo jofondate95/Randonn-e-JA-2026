@@ -13,19 +13,19 @@
     "formConfig": {
       "templateId": "banco_hike",
       "theme": {
-        "primaryColor": "#5A5A40",
-        "accentColor": "#D2691E",
-        "backgroundColor": "#f5f2ed",
         "cardBackgroundColor": "#ffffff",
-        "textColor": "#2d2d2a",
-        "borderRadius": "rounded-3xl"
+        "backgroundColor": "#f5f2ed",
+        "borderRadius": "rounded-3xl",
+        "accentColor": "#D2691E",
+        "primaryColor": "#5A5A40",
+        "textColor": "#2d2d2a"
       },
       "header": {
+        "logoPosition": "center",
         "showBanner": true,
         "bannerUrl": "https://images.unsplash.com/photo-1448375240586-882707db888b?q=80&w=1600&auto=format&fit=crop",
-        "bannerHeight": "medium",
         "bannerOverlayOpacity": 35,
-        "logoPosition": "center"
+        "bannerHeight": "medium"
       },
       "formTitle": "Inscription Officielle - Randonnée 2026",
       "formSubtitle": "Forêt du Banco • Dimanche 15 Novembre 2026",
@@ -54,14 +54,14 @@
       "allowClubOther": true,
       "clubs": [
         {
-          "id": "Aventurier",
           "label": "Aventurier",
-          "desc": "6 à 9 ans"
+          "desc": "6 à 9 ans",
+          "id": "Aventurier"
         },
         {
           "id": "Éclaireur",
-          "label": "Éclaireur",
-          "desc": "10 à 15 ans"
+          "desc": "10 à 15 ans",
+          "label": "Éclaireur"
         },
         {
           "id": "Ambassadeur",
@@ -84,9 +84,9 @@
           "desc": "Responsables"
         },
         {
-          "id": "Autre",
           "label": "Autre",
-          "desc": "Sympathisant / Invité"
+          "desc": "Sympathisant / Invité",
+          "id": "Autre"
         }
       ],
       "enableTshirtField": true,
@@ -120,22 +120,7 @@
       "illnessHelpText": "Précisez asthme, diabète, allergies, blessures récentes ou traitement particulier pour les secouristes.",
       "customFields": [],
       "formConfig": {
-        "districts": [
-          "District du Phare",
-          "District 2",
-          "District 3",
-          "District 4",
-          "District 5",
-          "District de la Me (Adzope)",
-          "District d’Agboville",
-          "District de Bonoua",
-          "District de Songon",
-          "District de Pole Maritime",
-          "District d’Aboisso",
-          "District d’Abengourou",
-          "District KM 17",
-          "Autre"
-        ],
+        "termsNotice": "En vous inscrivant, vous attestez être médicalement apte à participer à la randonnée en milieu naturel.",
         "tshirtSizes": [
           "XS",
           "S",
@@ -159,8 +144,8 @@
           },
           {
             "id": "Ambassadeur",
-            "label": "Ambassadeur",
-            "desc": "16 à 21 ans"
+            "desc": "16 à 21 ans",
+            "label": "Ambassadeur"
           },
           {
             "id": "Aîné",
@@ -173,27 +158,42 @@
             "desc": "Cadres & Formateurs"
           },
           {
-            "id": "Leader de Jeunesse",
             "label": "Leader de Jeunesse",
-            "desc": "Responsables"
+            "desc": "Responsables",
+            "id": "Leader de Jeunesse"
           },
           {
-            "id": "Autre",
+            "desc": "Sympathisant / Invité",
             "label": "Autre",
-            "desc": "Sympathisant / Invité"
+            "id": "Autre"
           }
         ],
-        "bannerNotice": "",
+        "districts": [
+          "District du Phare",
+          "District 2",
+          "District 3",
+          "District 4",
+          "District 5",
+          "District de la Me (Adzope)",
+          "District d’Agboville",
+          "District de Bonoua",
+          "District de Songon",
+          "District de Pole Maritime",
+          "District d’Aboisso",
+          "District d’Abengourou",
+          "District KM 17",
+          "Autre"
+        ],
         "formTitle": "Inscription Officielle - Randonnée 2026",
-        "formSubtitle": "Forêt du Banco • Dimanche 15 Novembre 2026",
-        "termsNotice": "En vous inscrivant, vous attestez être médicalement apte à participer à la randonnée en milieu naturel.",
+        "bannerNotice": "",
         "churches": [
           "Temple du Jubilé (Cocody)",
           "Béthel (Yopougon)",
           "Maranatha (Treichville)",
           "Philadelphie (Abobo)",
           "Salem (Port-Bouët)"
-        ]
+        ],
+        "formSubtitle": "Forêt du Banco • Dimanche 15 Novembre 2026"
       }
     }
   },
@@ -216,26 +216,246 @@
   ],
   "registrations": [
     {
-      "id": "BANCO-2026-9175",
-      "sessionId": "session_1788500251277_l8rr1du",
-      "fullName": "Jonathan Dek",
-      "church": "Gonzague ville",
-      "contact": "01020103",
-      "district": "District Cocody",
+      "id": "BANCO-2026-4384",
+      "sessionId": "import_1788813939701_2",
+      "fullName": "EKRA SERAPHIN",
+      "church": "Koumassi Prodomo",
+      "contact": "Non renseigné",
+      "district": "District Abidjan Est",
       "districtOther": "",
-      "club": "Aîné",
+      "club": "Chef Guide",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "customFields": {},
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T20:45:39.701Z",
+      "proofFile": null,
+      "status": "draft",
+      "adminNotes": "Importé depuis registre-inscriptions-randonnee-2026-2026-09-05.xlsx",
+      "createdAt": "2026-09-07T20:45:39.701Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z"
+    },
+    {
+      "id": "BANCO-2026-5923",
+      "sessionId": "import_1788813939700_1",
+      "fullName": "DEKAYE JOËL",
+      "church": "Gonzagueville",
+      "contact": "Non renseigné",
+      "district": "District Port-Bouët / Koumassi",
+      "districtOther": "",
+      "club": "Chef Guide",
+      "clubOther": "",
+      "tshirtSize": "XXL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "customFields": {},
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T20:45:39.700Z",
+      "proofFile": null,
+      "status": "confirmed",
+      "adminNotes": "Importé depuis registre-inscriptions-randonnee-2026-2026-09-05.xlsx",
+      "createdAt": "2026-09-07T20:45:39.700Z",
+      "updatedAt": "2026-09-08T08:38:17.096Z"
+    },
+    {
+      "id": "BANCO-2026-1768",
+      "sessionId": "session_1788801225992_fwyn1m4",
+      "fullName": "Gbouma Christ Rayan",
+      "church": "Cocody Philadelphie",
+      "contact": "0596557514",
+      "district": "District 2",
+      "districtOther": "",
+      "club": "Ambassadeur",
       "clubOther": "",
       "tshirtSize": "M",
       "tshirtSizeOther": "",
       "hasIllness": "Non",
       "illnessDetails": "",
-      "currentStep": "proof",
-      "paymentClicked": true,
-      "paymentClickedAt": "2026-09-04T13:49:26.266Z",
+      "currentStep": "payment",
+      "paymentClicked": false,
+      "paymentClickedAt": null,
       "proofFile": null,
-      "status": "payment_clicked",
-      "createdAt": "2026-09-04T13:43:00.242Z",
-      "updatedAt": "2026-09-04T13:49:26.266Z"
+      "status": "draft",
+      "createdAt": "2026-09-07T20:27:10.939Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z",
+      "adminNotes": "Importé depuis sauvegarde_securisee_inscrits_banco_2026_2026-09-07 (4).json"
+    },
+    {
+      "id": "BANCO-2026-2891",
+      "sessionId": "session_1788810548626_mxvcgom",
+      "fullName": "AMAN César",
+      "church": "ABOISSO",
+      "contact": "0576650359",
+      "district": "District d’Aboisso",
+      "districtOther": "",
+      "club": "Chef Guide",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "currentStep": "payment",
+      "paymentClicked": false,
+      "paymentClickedAt": null,
+      "proofFile": null,
+      "status": "draft",
+      "createdAt": "2026-09-07T19:51:57.287Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z",
+      "adminNotes": "Importé depuis sauvegarde_securisee_inscrits_banco_2026_2026-09-07 (4).json"
+    },
+    {
+      "id": "BANCO-2026-3412",
+      "sessionId": "session_1788803716563_r9qx1t9",
+      "fullName": "zouh stephane",
+      "church": "adventiste du septième jour",
+      "contact": "0701240025",
+      "district": "District de Bonoua",
+      "districtOther": "",
+      "club": "Aventurier",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Oui",
+      "illnessDetails": "dieu est grand",
+      "currentStep": "payment",
+      "paymentClicked": false,
+      "paymentClickedAt": null,
+      "proofFile": null,
+      "status": "draft",
+      "createdAt": "2026-09-07T18:02:16.497Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z",
+      "adminNotes": "Importé depuis sauvegarde_securisee_inscrits_banco_2026_2026-09-07 (4).json"
+    },
+    {
+      "id": "BANCO-2026-4561",
+      "sessionId": "session_1788802764238_scgq2d8",
+      "fullName": "N'zi Elvis jotham yaobah",
+      "church": "Williamsville",
+      "contact": "0170382103",
+      "district": "District 5",
+      "districtOther": "",
+      "club": "Ambassadeur",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "currentStep": "payment",
+      "paymentClicked": false,
+      "paymentClickedAt": null,
+      "proofFile": null,
+      "status": "draft",
+      "createdAt": "2026-09-07T17:41:48.112Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z",
+      "adminNotes": "Importé depuis sauvegarde_securisee_inscrits_banco_2026_2026-09-07 (4).json"
+    },
+    {
+      "id": "BANCO-2026-3709",
+      "sessionId": "session_1788795076338_zhg8hzb",
+      "fullName": "Raphaël KOUADIO",
+      "church": "Marcory",
+      "contact": "0707263539",
+      "district": "District du Phare",
+      "districtOther": "",
+      "club": "Chef Guide",
+      "clubOther": "",
+      "tshirtSize": "XXL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T15:37:54.792Z",
+      "proofFile": {
+        "originalName": "Screenshot_20260907-125026.png",
+        "filename": "proof-1788795508409-964602060-Screenshot_20260907-125026.png",
+        "size": 92369,
+        "uploadedAt": "2026-09-07T15:38:28.414Z",
+        "mimeType": "image/png"
+      },
+      "status": "draft",
+      "createdAt": "2026-09-07T15:32:20.729Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z",
+      "transactionPhone": "0707263539",
+      "adminNotes": "Importé depuis sauvegarde_securisee_inscrits_banco_2026_2026-09-07 (4).json"
+    },
+    {
+      "id": "BANCO-2026-3770",
+      "sessionId": "session_1788783210426_orbocsc",
+      "fullName": "N'guessan",
+      "church": "Dokui",
+      "contact": "0713757690",
+      "district": "District 5",
+      "districtOther": "",
+      "club": "Éclaireur",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "customFields": {},
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T12:14:43.829Z",
+      "proofFile": null,
+      "status": "draft",
+      "adminNotes": "Importé depuis sauvegarde-permanente-randonnee-banco-2026-09-07.json",
+      "createdAt": "2026-09-07T12:14:26.812Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z"
+    },
+    {
+      "id": "BANCO-2026-2606",
+      "sessionId": "session_1788736694779_5ew068v",
+      "fullName": "YALE Mondesir",
+      "church": "Paillet",
+      "contact": "0767574751",
+      "district": "District 5",
+      "districtOther": "",
+      "club": "Leader de Jeunesse",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "customFields": {},
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T11:54:15.203Z",
+      "proofFile": null,
+      "status": "draft",
+      "adminNotes": "Importé depuis sauvegarde-permanente-randonnee-banco-2026-09-07.json",
+      "createdAt": "2026-09-07T11:53:42.862Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z"
+    },
+    {
+      "id": "BANCO-2026-4223",
+      "sessionId": "session_1788780903918_futsjdp",
+      "fullName": "Acolia Djoman Chris Emmanuel",
+      "church": "Gonzagueville",
+      "contact": "0759540773",
+      "district": "District du Phare",
+      "districtOther": "",
+      "club": "Chef Guide",
+      "clubOther": "",
+      "tshirtSize": "XL",
+      "tshirtSizeOther": "",
+      "hasIllness": "Non",
+      "illnessDetails": "",
+      "customFields": {},
+      "currentStep": "confirmation",
+      "paymentClicked": true,
+      "paymentClickedAt": "2026-09-07T20:42:56.059Z",
+      "proofFile": null,
+      "status": "draft",
+      "adminNotes": "Importé depuis sauvegarde-permanente-randonnee-banco-2026-09-07.json",
+      "createdAt": "2026-09-07T11:36:24.901Z",
+      "updatedAt": "2026-09-08T08:36:54.266Z"
     }
   ],
   "drafts": {
@@ -260,11 +480,19 @@
         "proofFile": null,
         "status": "payment_clicked",
         "createdAt": "2026-09-04T13:43:00.242Z",
-        "updatedAt": "2026-09-04T13:49:26.266Z"
+        "updatedAt": "2026-09-04T13:49:26.266Z",
+        "customFields": {}
       },
-      "step": "proof",
-      "updatedAt": "2026-09-07T17:28:54.617Z",
-      "registrationId": "BANCO-2026-9175"
+      "step": "form",
+      "updatedAt": "2026-09-08T09:40:43.794Z"
+    },
+    "session_test": {
+      "formData": {},
+      "updatedAt": "2026-09-08T09:18:48.920Z"
     }
-  }
+  },
+  "deletedRegistrationIds": [
+    "BANCO-2026-9175",
+    "BANCO-2026-7447"
+  ]
 }

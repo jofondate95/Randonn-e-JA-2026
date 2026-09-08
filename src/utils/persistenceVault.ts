@@ -1,4 +1,5 @@
 import { RegistrationRecord } from '../types.js';
+import { safeFetch } from './api.js';
 
 const STORAGE_VAULT_KEY = 'banco_2026_registrations_vault';
 const STORAGE_LAST_SYNC_KEY = 'banco_2026_vault_last_sync';
@@ -156,13 +157,14 @@ export async function pushVaultToServer(
     return { success: true, syncedCount: 0, message: 'Aucune donnée locale valide à synchroniser.' };
   }
 
-  const res = await fetch('/api/admin/registrations/batch-sync', {
+  const res = await safeFetch('/api/admin/registrations/batch-sync', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ registrations: records }),
+    retries: 2,
   });
 
   const data = await res.json();

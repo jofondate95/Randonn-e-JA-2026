@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Lock, Mail, X, AlertCircle, CheckCircle, ArrowRight } from 'lucide-react';
 import { AdminUser } from '../types.js';
+import { safeFetch } from '../utils/api.js';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const checkSetup = async () => {
     try {
-      const res = await fetch('/api/admin/check-setup');
+      const res = await safeFetch('/api/admin/check-setup', { retries: 2 });
       const data = await res.json();
       setHasAdmin(data.hasAdmin);
       setAdminCount(data.currentCount ?? (data.hasAdmin ? 1 : 0));
@@ -47,10 +48,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/admin/login', {
+      const res = await safeFetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        retries: 2,
       });
       const data = await res.json();
 
@@ -60,7 +62,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
       onLoginSuccess(data.token, data.user);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Impossible de se connecter au serveur. Vérifiez votre connexion.');
     } finally {
       setLoading(false);
     }
@@ -81,10 +83,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/setup-initial', {
+      const res = await safeFetch('/api/admin/setup-initial', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        retries: 2,
       });
       const data = await res.json();
 
@@ -97,7 +100,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         onLoginSuccess(data.token, data.user);
       }, 900);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Échec de l'initialisation. Vérifiez la connexion.");
     } finally {
       setLoading(false);
     }

@@ -215,9 +215,6 @@ export const PaymentStep: React.FC<PaymentStepProps> = ({
                 <div className="text-xs text-stone-600">
                   Bénéficiaire officiel : <strong className="text-stone-900">{waveRecipient}</strong>
                 </div>
-                <div className="text-xs text-stone-600 mt-0.5">
-                  Numéro Wave officiel : <strong className="font-mono text-[#1DC2EC] font-bold">{settings.waveNumber || settings.momoNumber || '0769343626'}</strong>
-                </div>
               </div>
             </div>
 

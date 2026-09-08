@@ -16,6 +16,7 @@ import {
   AdminUser,
 } from './types.js';
 import { TEMPLATE_BANCO_HIKE } from './utils/formTemplates.js';
+import { safeFetch } from './utils/api.js';
 
 const STORAGE_SESSION_KEY = 'randonnee_2026_session_id';
 const STORAGE_DRAFT_KEY = 'randonnee_2026_draft_data';
@@ -103,8 +104,9 @@ export default function App() {
     // Restore persistent admin session if available (Permanent login)
     const savedAdminToken = localStorage.getItem(STORAGE_ADMIN_TOKEN);
     if (savedAdminToken) {
-      fetch('/api/admin/me', {
+      safeFetch('/api/admin/me', {
         headers: { Authorization: `Bearer ${savedAdminToken}` },
+        retries: 2,
       })
         .then((res) => {
           if (res.ok) return res.json();
@@ -139,9 +141,9 @@ export default function App() {
     }
     setSessionId(sid);
 
-    // Fetch public settings
-    fetch('/api/settings')
-      .then((res) => res.json())
+    // Fetch public settings with auto-retry
+    safeFetch('/api/settings', { retries: 3, delayMs: 400 })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data && typeof data === 'object') {
           setSettings((prev) => ({
@@ -151,7 +153,7 @@ export default function App() {
           }));
         }
       })
-      .catch((e) => console.error('Error loading settings', e));
+      .catch((e) => console.warn('Note: Settings will reload automatically', e));
 
     // Restore draft from local storage first (instant)
     const localDraft = localStorage.getItem(STORAGE_DRAFT_KEY);
@@ -166,10 +168,11 @@ export default function App() {
       }
     }
 
-    // Restore progress from server
-    fetch(`/api/registration/session/${sid}`)
-      .then((res) => res.json())
+    // Restore progress from server with auto-retry
+    safeFetch(`/api/registration/session/${sid}`, { retries: 2 })
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        if (!data) return;
         if (data.registration) {
           setRegistration(data.registration);
           setFormData(data.registration);
@@ -190,7 +193,7 @@ export default function App() {
           setLastSavedText(`Enregistré à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`);
         }
       })
-      .catch((e) => console.error('Error fetching session state', e));
+      .catch((e) => console.warn('Note: Session state will reload automatically', e));
   }, []);
 
   // Server AutoSave implementation
@@ -206,7 +209,7 @@ export default function App() {
         );
 
         // Save server
-        const res = await fetch('/api/registration/autosave', {
+        const res = await safeFetch('/api/registration/autosave', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -215,6 +218,7 @@ export default function App() {
             step: currentStepRef.current,
             registrationId: registrationRef.current?.id,
           }),
+          retries: 1,
         });
 
         if (res.ok) {
@@ -244,7 +248,7 @@ export default function App() {
     setGlobalError(null);
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/registration/submit-form', {
+      const res = await safeFetch('/api/registration/submit-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -252,6 +256,7 @@ export default function App() {
           formData: submittedFormData,
           registrationId: registration?.id,
         }),
+        retries: 2,
       });
 
       const data = await res.json();
@@ -264,7 +269,7 @@ export default function App() {
       setCurrentStep('payment');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
-      setGlobalError(err.message);
+      setGlobalError(err.message || 'Erreur de connexion. Veuillez vérifier votre réseau.');
       window.scrollTo({ top: 200, behavior: 'smooth' });
     } finally {
       setIsSubmitting(false);
@@ -275,10 +280,11 @@ export default function App() {
   const handleTrackPaymentClick = async () => {
     if (!registration) return;
     try {
-      const res = await fetch('/api/registration/track-payment-click', {
+      const res = await safeFetch('/api/registration/track-payment-click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registrationId: registration.id }),
+        retries: 1,
       });
       const data = await res.json();
       if (data.registration) {
@@ -303,9 +309,10 @@ export default function App() {
     }
 
     try {
-      const res = await fetch('/api/registration/upload-proof', {
+      const res = await safeFetch('/api/registration/upload-proof', {
         method: 'POST',
         body: bodyFormData,
+        retries: 2,
       });
 
       const data = await res.json();
@@ -318,7 +325,7 @@ export default function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return true;
     } catch (err: any) {
-      setGlobalError(err.message);
+      setGlobalError(err.message || 'Erreur lors du téléversement de la preuve.');
       return false;
     } finally {
       setIsSubmitting(false);

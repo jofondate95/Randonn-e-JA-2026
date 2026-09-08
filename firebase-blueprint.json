@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "app_settings": {
+      "title": "Paramètres de l'Application",
+      "description": "Configuration globale, liens et numéros Wave, formulaire et CMS",
+      "fields": {
+        "waveLink": { "type": "string", "description": "Lien officiel Wave" },
+        "waveNumber": { "type": "string", "description": "Numéro officiel Wave" },
+        "momoNumber": { "type": "string", "description": "Numéro de secours MoMo" },
+        "paymentAmount": { "type": "string", "description": "Montant de l'inscription" },
+        "formConfig": { "type": "object", "description": "Configuration dynamique du formulaire" },
+        "updatedAt": { "type": "string", "description": "Date de dernière modification" }
+      }
+    },
+    "registrations": {
+      "title": "Inscriptions",
+      "description": "Fiches d'inscription des participants à la randonnée Banco 2026",
+      "fields": {
+        "id": { "type": "string", "description": "Identifiant unique BANCO-2026-XXXX" },
+        "fullName": { "type": "string", "description": "Nom et prénoms" },
+        "contact": { "type": "string", "description": "Numéro de contact" },
+        "church": { "type": "string", "description": "Église locale" },
+        "district": { "type": "string", "description": "District" },
+        "club": { "type": "string", "description": "Section ou Club" },
+        "tshirtSize": { "type": "string", "description": "Taille de t-shirt" },
+        "status": { "type": "string", "description": "Statut de paiement et validation" },
+        "proofFile": { "type": "object", "description": "Preuve de paiement" },
+        "createdAt": { "type": "string", "description": "Date de création" },
+        "updatedAt": { "type": "string", "description": "Date de mise à jour" }
+      }
+    },
+    "admin_accounts": {
+      "title": "Comptes Administrateurs",
+      "description": "Comptes et empreintes d'accès administrateurs autorisés",
+      "fields": {
+        "id": { "type": "string", "description": "Identifiant de l'administrateur" },
+        "email": { "type": "string", "description": "Adresse email" },
+        "role": { "type": "string", "description": "Rôle : superadmin ou admin" },
+        "passwordHash": { "type": "string", "description": "Hachage sécurisé bcrypt" },
+        "createdAt": { "type": "string", "description": "Date de création" }
+      }
+    },
+    "registration_drafts": {
+      "title": "Brouillons Inscriptions (Autosave)",
+      "description": "Brouillons temporaires sauvegardés automatiquement lors de la saisie",
+      "fields": {
+        "sessionId": { "type": "string", "description": "Identifiant de session du client" },
+        "draftData": { "type": "object", "description": "Données pré-remplies du formulaire" },
+        "updatedAt": { "type": "string", "description": "Date de dernière modification" }
+      }
+    },
+    "deleted_registrations": {
+      "title": "Inscriptions Supprimées",
+      "description": "Identifiants d'inscriptions définitivement supprimées par l'administrateur",
+      "fields": {
+        "id": { "type": "string", "description": "Identifiant supprimé" },
+        "deletedAt": { "type": "string", "description": "Date de suppression" }
+      }
+    }
+  }
+}

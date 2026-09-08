@@ -2,6 +2,24 @@ import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { RegistrationRecord, PaymentSettings, AdminUser, FormConfig } from '../src/types.js';
+import {
+  fetchCloudSettings,
+  saveCloudSettings,
+  fetchCloudDeletedIds,
+  saveCloudDeletedIds,
+  fetchCloudRegistrations,
+  saveCloudRegistration,
+  saveCloudRegistrationsBatch,
+  deleteCloudRegistration,
+  clearAllCloudRegistrations,
+  getFirestoreClient,
+  fetchCloudAdmins,
+  saveCloudAdmin,
+  saveCloudAdminsBatch,
+  deleteCloudAdmin,
+  saveCloudDraft,
+  fetchCloudDraft,
+} from './firestore.js';
 
 interface StoredAdmin extends AdminUser {
   passwordHash: string;
@@ -495,6 +513,9 @@ export const dbService = {
     };
     db.admins.push(newAdmin);
     writeDb(db);
+    saveCloudAdmin(newAdmin).catch((err) => {
+      console.warn('[Firestore] Async save admin error:', err);
+    });
     const { passwordHash: _, ...safeUser } = newAdmin;
     return safeUser;
   },
@@ -524,6 +545,9 @@ export const dbService = {
     };
     db.admins.push(newAdmin);
     writeDb(db);
+    saveCloudAdmin(newAdmin).catch((err) => {
+      console.warn('[Firestore] Async save admin error:', err);
+    });
     const { passwordHash: _, ...safeUser } = newAdmin;
     return safeUser;
   },
@@ -545,6 +569,9 @@ export const dbService = {
     }
     db.admins = db.admins.filter((a) => a.id !== adminId);
     writeDb(db);
+    deleteCloudAdmin(adminId).catch((err) => {
+      console.warn('[Firestore] Async delete admin error:', err);
+    });
     return true;
   },
 
@@ -563,6 +590,9 @@ export const dbService = {
     admin.passwordHash = bcrypt.hashSync(newPassword, salt);
     db.admins[adminIndex] = admin;
     writeDb(db);
+    saveCloudAdmin(admin).catch((err) => {
+      console.warn('[Firestore] Async save admin password error:', err);
+    });
     return true;
   },
 
@@ -609,6 +639,9 @@ export const dbService = {
 
     db.admins[adminIndex] = admin;
     writeDb(db);
+    saveCloudAdmin(admin).catch((err) => {
+      console.warn('[Firestore] Async save admin update error:', err);
+    });
     const { passwordHash: _, ...safeUser } = admin;
     return safeUser;
   },
@@ -658,6 +691,9 @@ export const dbService = {
     };
     db.settings.formConfig = updatedConfig;
     writeDb(db);
+    saveCloudSettings(db.settings).catch((err) => {
+      console.warn('[Firestore] Async save settings error:', err);
+    });
     return updatedConfig;
   },
 
@@ -687,10 +723,10 @@ export const dbService = {
     const db = readDb();
     const safeWaveNumber = (newSettings.waveNumber && !newSettings.waveNumber.includes('58 42'))
       ? String(newSettings.waveNumber).trim()
-      : PERMANENT_PAYMENT_NUMBER;
+      : (newSettings.waveNumber !== undefined ? db.settings.waveNumber : PERMANENT_PAYMENT_NUMBER);
     const safeMomoNumber = (newSettings.momoNumber && !newSettings.momoNumber.includes('58 42'))
       ? String(newSettings.momoNumber).trim()
-      : PERMANENT_PAYMENT_NUMBER;
+      : (newSettings.momoNumber !== undefined ? db.settings.momoNumber : PERMANENT_PAYMENT_NUMBER);
 
     db.settings = {
       ...db.settings,
@@ -699,25 +735,35 @@ export const dbService = {
       momoNumber: safeMomoNumber,
     };
     writeDb(db);
+    saveCloudSettings(db.settings).catch((err) => {
+      console.warn('[Firestore] Async save settings error:', err);
+    });
     return db.settings;
   },
 
   // Draft autosave
   saveDraft(sessionId: string, formData: any, step: string, registrationId?: string) {
     const db = readDb();
-    db.drafts[sessionId] = {
+    const draftItem = {
       formData,
       step,
       updatedAt: new Date().toISOString(),
       registrationId,
     };
+    db.drafts[sessionId] = draftItem;
     writeDb(db);
+    saveCloudDraft(sessionId, draftItem).catch((err) => {
+      console.warn('[Firestore] Async save draft error:', err);
+    });
     return db.drafts[sessionId];
   },
 
   getDraft(sessionId: string) {
     const db = readDb();
-    return db.drafts[sessionId] || null;
+    if (db.drafts[sessionId]) {
+      return db.drafts[sessionId];
+    }
+    return null;
   },
 
   // Registrations
@@ -781,6 +827,9 @@ export const dbService = {
       record.updatedAt = now;
       writeDb(db);
       appendToLedger(record);
+      saveCloudRegistration(record).catch((err) => {
+        console.warn('[Firestore] Async save registration error:', err);
+      });
       return record;
     }
 
@@ -815,6 +864,9 @@ export const dbService = {
     db.registrations.push(newRecord);
     writeDb(db);
     appendToLedger(newRecord);
+    saveCloudRegistration(newRecord).catch((err) => {
+      console.warn('[Firestore] Async save registration error:', err);
+    });
     return newRecord;
   },
 
@@ -831,12 +883,15 @@ export const dbService = {
     record.updatedAt = new Date().toISOString();
     writeDb(db);
     appendToLedger(record);
+    saveCloudRegistration(record).catch((err) => {
+      console.warn('[Firestore] Async save registration error:', err);
+    });
     return record;
   },
 
   attachProofAndSubmit(
     id: string,
-    fileMeta: { filename: string; originalName: string; mimeType: string; size: number },
+    fileMeta: { filename: string; originalName: string; mimeType: string; size: number; dataUrl?: string },
     transactionPhone?: string
   ): RegistrationRecord | null {
     const db = readDb();
@@ -854,6 +909,9 @@ export const dbService = {
     record.updatedAt = new Date().toISOString();
     writeDb(db);
     appendToLedger(record);
+    saveCloudRegistration(record).catch((err) => {
+      console.warn('[Firestore] Async save registration error:', err);
+    });
     return record;
   },
 
@@ -872,7 +930,30 @@ export const dbService = {
     record.updatedAt = new Date().toISOString();
     writeDb(db);
     appendToLedger(record);
+    saveCloudRegistration(record).catch((err) => {
+      console.warn('[Firestore] Async save registration error:', err);
+    });
     return record;
+  },
+
+  updateRegistration(id: string, updates: Partial<RegistrationRecord>): RegistrationRecord | null {
+    const db = readDb();
+    const index = db.registrations.findIndex((r) => r.id === id);
+    if (index === -1) return null;
+    const existing = db.registrations[index];
+    const updatedRecord: RegistrationRecord = {
+      ...existing,
+      ...updates,
+      id: existing.id, // Immutable ID
+      updatedAt: new Date().toISOString(),
+    };
+    db.registrations[index] = updatedRecord;
+    writeDb(db);
+    appendToLedger(updatedRecord);
+    saveCloudRegistration(updatedRecord).catch((err) => {
+      console.warn('[Firestore] Async save registration error:', err);
+    });
+    return updatedRecord;
   },
 
   batchImportRegistrations(
@@ -1003,6 +1084,9 @@ export const dbService = {
     }
 
     writeDb(db);
+    saveCloudRegistrationsBatch(processedRecords).catch((err) => {
+      console.warn('[Firestore] Async batch import save error:', err);
+    });
 
     return {
       success: true,
@@ -1046,6 +1130,9 @@ export const dbService = {
 
     db.registrations = Array.from(existingMap.values());
     writeDb(db);
+    saveCloudRegistrationsBatch(db.registrations).catch((err) => {
+      console.warn('[Firestore] Async batch sync save error:', err);
+    });
 
     return {
       success: true,
@@ -1098,6 +1185,12 @@ export const dbService = {
 
     // 6. Write changes synchronously to all 4 database mirrors
     writeDb(db);
+
+    // 7. Delete permanently from Cloud Firestore and set tombstone
+    deleteCloudRegistration(cleanId).catch((err) => {
+      console.warn('[Firestore] Async delete registration error:', err);
+    });
+
     return true;
   },
 
@@ -1137,6 +1230,15 @@ export const dbService = {
     db.registrations = [];
     db.drafts = {};
     writeDb(db);
+
+    // 4. Wipe Cloud Firestore and record tombstones
+    clearAllCloudRegistrations().catch((err) => {
+      console.warn('[Firestore] Async wipe cloud registrations error:', err);
+    });
+    saveCloudDeletedIds(wipedIds).catch((err) => {
+      console.warn('[Firestore] Async save deleted IDs error:', err);
+    });
+
     return { deletedCount: count };
   },
 
@@ -1221,4 +1323,138 @@ export const dbService = {
       syncedAdminsCount: db.admins.length,
     };
   },
+
+  async initCloudPersistence(): Promise<{ success: boolean; message: string; registrationCount: number }> {
+    try {
+      const client = getFirestoreClient();
+      if (!client) {
+        return { success: false, message: 'Cloud Firestore non configuré', registrationCount: 0 };
+      }
+
+      console.log('[Cloud Persistence] Initializing bidirectional Cloud Firestore synchronization...');
+      // 1. Fetch deleted IDs from cloud
+      const cloudDeletedIds = await fetchCloudDeletedIds();
+      const localDeleted = getDeletedRegistrationIds();
+      for (const id of cloudDeletedIds) {
+        localDeleted.add(id);
+      }
+      persistDeletedRegistrationIds(Array.from(localDeleted));
+
+      // 2. Fetch cloud settings (contains Wave link, wave number, CMS, form config)
+      const cloudSettings = await fetchCloudSettings();
+      const currentDb = readDb();
+      if (cloudSettings) {
+        console.log('[Cloud Persistence] Cloud settings loaded from Firestore. Restoring permanent configuration.');
+        currentDb.settings = {
+          ...currentDb.settings,
+          ...cloudSettings,
+          formConfig: {
+            ...currentDb.settings.formConfig,
+            ...(cloudSettings.formConfig || {}),
+          },
+        };
+        writeDb(currentDb);
+      } else {
+        console.log('[Cloud Persistence] No existing settings in Firestore. Saving current baseline settings to Cloud.');
+        await saveCloudSettings(currentDb.settings);
+      }
+
+      // 3. Fetch cloud registrations
+      const cloudRegistrations = await fetchCloudRegistrations();
+      if (cloudRegistrations && cloudRegistrations.length > 0) {
+        console.log(`[Cloud Persistence] Found ${cloudRegistrations.length} registrations in Cloud Firestore.`);
+        const currentMap = new Map<string, RegistrationRecord>(currentDb.registrations.map((r) => [r.id, r]));
+
+        for (const cloudReg of cloudRegistrations) {
+          if (!cloudReg || !cloudReg.id || localDeleted.has(cloudReg.id)) continue;
+          const existing = currentMap.get(cloudReg.id);
+          if (!existing) {
+            currentMap.set(cloudReg.id, cloudReg);
+          } else {
+            const cloudTime = new Date(cloudReg.updatedAt || cloudReg.createdAt || 0).getTime();
+            const existTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+            if (cloudTime >= existTime) {
+              currentMap.set(cloudReg.id, { ...existing, ...cloudReg });
+            }
+          }
+        }
+
+        currentDb.registrations = Array.from(currentMap.values());
+        writeDb(currentDb);
+      } else if (currentDb.registrations.length > 0) {
+        console.log(`[Cloud Persistence] Uploading ${currentDb.registrations.length} existing registrations to Cloud Firestore.`);
+        await saveCloudRegistrationsBatch(currentDb.registrations);
+      }
+
+      // 4. Synchronize Admin Accounts with Firestore
+      try {
+        const cloudAdmins = await fetchCloudAdmins();
+        if (cloudAdmins && cloudAdmins.length > 0) {
+          console.log(`[Cloud Persistence] Found ${cloudAdmins.length} admin accounts in Cloud Firestore.`);
+          const adminMap = new Map<string, StoredAdmin>(currentDb.admins.map((a) => [a.email.toLowerCase(), a]));
+          for (const ca of cloudAdmins) {
+            if (!ca || !ca.email || !ca.passwordHash) continue;
+            adminMap.set(ca.email.toLowerCase(), {
+              id: ca.id,
+              email: ca.email,
+              role: ca.role,
+              passwordHash: ca.passwordHash,
+              createdAt: ca.createdAt,
+              lastLogin: ca.lastLogin,
+            });
+          }
+          currentDb.admins = Array.from(adminMap.values());
+          writeDb(currentDb);
+        } else if (currentDb.admins.length > 0) {
+          console.log(`[Cloud Persistence] Uploading ${currentDb.admins.length} seed/active admins to Cloud Firestore.`);
+          await saveCloudAdminsBatch(currentDb.admins);
+        }
+      } catch (adminSyncErr) {
+        console.warn('[Cloud Persistence] Warning syncing admin accounts:', adminSyncErr);
+      }
+
+      lastCloudSyncTimestamp = new Date().toISOString();
+      return {
+        success: true,
+        message: 'Synchronisation Cloud Firestore effectuée avec succès.',
+        registrationCount: currentDb.registrations.length,
+      };
+    } catch (err: any) {
+      console.error('[Cloud Persistence] Error during initCloudPersistence:', err);
+      return {
+        success: false,
+        message: 'Erreur lors de la synchronisation : ' + err.message,
+        registrationCount: readDb().registrations.length,
+      };
+    }
+  },
+
+  async syncCloudNow(): Promise<{ success: boolean; message: string; count: number }> {
+    const res = await this.initCloudPersistence();
+    return {
+      success: res.success,
+      message: res.message,
+      count: res.registrationCount,
+    };
+  },
+
+  getCloudSyncStatus(): {
+    isCloudActive: boolean;
+    projectId: string;
+    databaseId: string;
+    lastSync: string | null;
+    permanentRegistrationsCount: number;
+  } {
+    const db = readDb();
+    const client = getFirestoreClient();
+    return {
+      isCloudActive: !!client,
+      projectId: 'balmy-lambda-ptn3v',
+      databaseId: 'ai-studio-randonne2026-debf6ce6-4281-48b6-80dc-dbe68e161b2c',
+      lastSync: lastCloudSyncTimestamp,
+      permanentRegistrationsCount: db.registrations.length,
+    };
+  },
 };
+
+let lastCloudSyncTimestamp: string | null = null;

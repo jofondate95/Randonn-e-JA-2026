@@ -107,6 +107,10 @@ function requireAdminAuth(req: AuthRequest, res: Response, next: NextFunction): 
 // PUBLIC REGISTRATION API
 // ==========================================
 
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 const PERMANENT_OFFICIAL_WAVE_URL = 'https://pay.wave.com/m/M_ci_ZfLyfzYgXEbI/c/ci/?amount=5050';
 
 // Get public settings (payment details, event info, and dynamic form configuration)
@@ -117,8 +121,8 @@ app.get('/api/settings', (_req: Request, res: Response) => {
     paymentAmount: settings.paymentAmount || '5 050 FCFA',
     waveLink: (settings.waveLink && settings.waveLink !== 'https://wave.com') ? settings.waveLink : PERMANENT_OFFICIAL_WAVE_URL,
     waveRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
-    waveNumber: settings.waveNumber || '0769343626',
-    momoNumber: settings.momoNumber || '0769343626',
+    waveNumber: '',
+    momoNumber: '',
     momoRecipientName: settings.waveRecipientName || settings.momoRecipientName || 'Comité Randonnée Banco 2026',
     generalInstructions: settings.generalInstructions,
     eventDate: settings.eventDate,
@@ -306,11 +310,22 @@ app.post('/api/registration/upload-proof', upload.single('proof'), (req: Request
     return;
   }
 
+  let dataUrl: string | undefined = undefined;
+  if (file.size <= 3 * 1024 * 1024) {
+    try {
+      const fileBuf = fs.readFileSync(file.path);
+      dataUrl = `data:${file.mimetype};base64,${fileBuf.toString('base64')}`;
+    } catch (e) {
+      console.warn('Could not generate dataUrl for proof:', e);
+    }
+  }
+
   const fileMeta = {
     filename: file.filename,
     originalName: file.originalname,
     mimeType: file.mimetype,
     size: file.size,
+    dataUrl,
   };
 
   const updated = dbService.attachProofAndSubmit(registrationId, fileMeta, transactionPhone);
@@ -875,6 +890,21 @@ app.get('/api/admin/proofs/:filename', (req: Request, res: Response) => {
   const filePath = path.join(UPLOADS_DIR, filename);
 
   if (!fs.existsSync(filePath)) {
+    // Attempt automatic reconstruction from permanent dataUrl if container storage was reset
+    const reg = dbService.getRegistrations().find((r) => r.proofFile?.filename === filename);
+    if (reg?.proofFile?.dataUrl) {
+      try {
+        const matches = reg.proofFile.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          const buffer = Buffer.from(matches[2], 'base64');
+          fs.writeFileSync(filePath, buffer);
+          res.sendFile(filePath);
+          return;
+        }
+      } catch (e) {
+        console.warn('Could not reconstruct file from dataUrl:', e);
+      }
+    }
     res.status(404).json({ error: 'Fichier de preuve introuvable.' });
     return;
   }
@@ -882,8 +912,147 @@ app.get('/api/admin/proofs/:filename', (req: Request, res: Response) => {
   res.sendFile(filePath);
 });
 
+// Direct Web View of payment proof by registration reference or filename (for exported documents PDF, Excel, CSV, JSON)
+app.get('/api/proofs/view/:id', (req: Request, res: Response) => {
+  const targetId = (req.params.id || '').trim();
+  const list = dbService.getRegistrations();
+  const reg = list.find(
+    (r) => r.id.toLowerCase() === targetId.toLowerCase() || r.proofFile?.filename === targetId
+  );
+
+  if (!reg) {
+    res.status(404).send(`
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head><meta charset="UTF-8"><title>Preuve introuvable</title><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+      <body style="font-family:system-ui,-apple-system,sans-serif;background:#f5f2ed;color:#383827;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box;">
+        <div style="background:#fff;padding:32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:440px;width:100%;text-align:center;">
+          <h2 style="color:#D2691E;margin-top:0;">Dossier introuvable</h2>
+          <p style="color:#666;font-size:14px;line-height:1.6;">La référence <code>${targetId}</code> ne correspond à aucune inscription enregistrée.</p>
+        </div>
+      </body>
+      </html>
+    `);
+    return;
+  }
+
+  if (!reg.proofFile) {
+    res.status(404).send(`
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head><meta charset="UTF-8"><title>Aucune preuve transmise</title><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+      <body style="font-family:system-ui,-apple-system,sans-serif;background:#f5f2ed;color:#383827;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;box-sizing:border-box;">
+        <div style="background:#fff;padding:32px;border-radius:16px;box-shadow:0 4px 20px rgba(0,0,0,0.08);max-width:480px;width:100%;text-align:center;">
+          <div style="display:inline-block;padding:8px 14px;background:#fef3c7;color:#92400e;border-radius:999px;font-weight:bold;font-size:12px;margin-bottom:12px;">En attente de preuve</div>
+          <h2 style="color:#5A5A40;margin-top:0;">Aucune preuve de paiement jointe</h2>
+          <p style="color:#555;font-size:14px;line-height:1.5;">Le participant <strong>${reg.fullName || 'Non renseigné'}</strong> (Réf : <code>${reg.id}</code>) n'a pas encore téléversé de reçu ou capture de paiement.</p>
+        </div>
+      </body>
+      </html>
+    `);
+    return;
+  }
+
+  const filename = path.basename(reg.proofFile.filename);
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  // 1. Try serving from disk
+  if (fs.existsSync(filePath)) {
+    res.setHeader('Content-Type', reg.proofFile.mimeType || 'image/jpeg');
+    res.setHeader('Content-Disposition', `inline; filename="${reg.proofFile.originalName}"`);
+    res.sendFile(filePath);
+    return;
+  }
+
+  // 2. Try reconstructing from dataUrl
+  if (reg.proofFile.dataUrl) {
+    try {
+      const matches = reg.proofFile.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const buffer = Buffer.from(matches[2], 'base64');
+        try {
+          fs.writeFileSync(filePath, buffer);
+        } catch {}
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Content-Disposition', `inline; filename="${reg.proofFile.originalName}"`);
+        res.send(buffer);
+        return;
+      }
+    } catch (e) {
+      console.warn('Could not reconstruct file from dataUrl:', e);
+    }
+  }
+
+  res.status(404).send('Fichier de preuve physique temporairement indisponible.');
+});
+
+// Download endpoint for payment proof
+app.get('/api/proofs/download/:id', (req: Request, res: Response) => {
+  const targetId = (req.params.id || '').trim();
+  const list = dbService.getRegistrations();
+  const reg = list.find(
+    (r) => r.id.toLowerCase() === targetId.toLowerCase() || r.proofFile?.filename === targetId
+  );
+
+  if (!reg || !reg.proofFile) {
+    res.status(404).send('Preuve introuvable.');
+    return;
+  }
+
+  const filename = path.basename(reg.proofFile.filename);
+  const filePath = path.join(UPLOADS_DIR, filename);
+
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, reg.proofFile.originalName);
+    return;
+  }
+
+  if (reg.proofFile.dataUrl) {
+    try {
+      const matches = reg.proofFile.dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const buffer = Buffer.from(matches[2], 'base64');
+        res.setHeader('Content-Type', matches[1]);
+        res.setHeader('Content-Disposition', `attachment; filename="${reg.proofFile.originalName}"`);
+        res.send(buffer);
+        return;
+      }
+    } catch {}
+  }
+
+  res.status(404).send('Fichier introuvable.');
+});
+
+// Full update of a participant registration by admin
+app.put('/api/admin/registrations/:id', requireAdminAuth, (req: Request, res: Response) => {
+  const updated = dbService.updateRegistration(req.params.id, req.body);
+  if (!updated) {
+    res.status(404).json({ error: 'Inscription introuvable.' });
+    return;
+  }
+  res.json({ success: true, registration: updated });
+});
+
+// Cloud Firestore Status & Synchronize endpoints
+app.get('/api/admin/cloud-status', requireAdminAuth, (_req: AuthRequest, res: Response) => {
+  const status = dbService.getCloudSyncStatus();
+  res.json({ success: true, status });
+});
+
+app.post('/api/admin/cloud-sync', requireAdminAuth, async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await dbService.syncCloudNow();
+    res.json({ success: result.success, message: result.message, count: result.count });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Erreur lors de la synchronisation Cloud' });
+  }
+});
+
 // Export CSV with UTF-8 BOM
-app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response) => {
+app.get('/api/admin/export-csv', requireAdminAuth, (req: Request, res: Response) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  const baseUrl = `${protocol}://${host}`;
   const list = dbService.getRegistrations();
   
   const headers = [
@@ -902,7 +1071,10 @@ app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response
     'Statut Inscription',
     'Clic Lien Paiement',
     'Date Clic Paiement',
-    'Preuve Uploadee',
+    'Preuve Transmise',
+    'Nom Fichier Preuve',
+    'Lien Preuve Web',
+    'Lien Téléchargement Preuve',
     'Notes Admin'
   ];
 
@@ -922,7 +1094,10 @@ app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response
     `"${r.status === 'confirmed' ? 'Confirmé' : r.status === 'pending_verification' ? 'En attente vérification' : r.status === 'rejected' ? 'Rejeté' : r.paymentClicked ? 'Paiement cliqué non soumis' : 'Brouillon'}"`,
     `"${r.paymentClicked ? 'OUI' : 'NON'}"`,
     `"${r.paymentClickedAt ? new Date(r.paymentClickedAt).toLocaleString('fr-FR') : ''}"`,
-    `"${r.proofFile ? r.proofFile.originalName : 'Aucune'}"`,
+    `"${r.proofFile ? 'OUI' : 'NON'}"`,
+    `"${r.proofFile ? r.proofFile.originalName.replace(/"/g, '""') : 'Aucune'}"`,
+    `"${r.proofFile ? `${baseUrl}/api/proofs/view/${r.id}` : ''}"`,
+    `"${r.proofFile ? `${baseUrl}/api/proofs/download/${r.id}` : ''}"`,
     `"${(r.adminNotes || '').replace(/"/g, '""')}"`,
   ]);
 
@@ -934,8 +1109,11 @@ app.get('/api/admin/export-csv', requireAdminAuth, (_req: Request, res: Response
   res.send(csvContent);
 });
 
-// Export Excel (.xlsx) with clean formatting & auto column widths
-app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Response) => {
+// Export Excel (.xlsx) with clean formatting, auto column widths and proof links
+app.get('/api/admin/export-excel', requireAdminAuth, (req: Request, res: Response) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  const baseUrl = `${protocol}://${host}`;
   const list = dbService.getRegistrations();
 
   const tableData = list.map((r, index) => ({
@@ -945,6 +1123,7 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
     'Nom & Prénoms': r.fullName || '',
     'Église locale': r.church || '',
     'Téléphone / Contact': r.contact || '',
+    'Numéro Transaction': r.transactionPhone || '',
     'District': r.district === 'Autre' ? (r.districtOther || 'Autre') : (r.district || ''),
     'Club JA': r.club === 'Autre' ? (r.clubOther || 'Autre') : (r.club || ''),
     'Taille T-Shirt': r.tshirtSize === 'Autre' ? (r.tshirtSizeOther || 'Autre') : (r.tshirtSize || 'Non spécifié'),
@@ -962,6 +1141,8 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
         : 'Brouillon',
     'Preuve jointe': r.proofFile ? 'OUI' : 'NON',
     'Fichier de preuve': r.proofFile ? r.proofFile.originalName : 'Aucun',
+    'Lien pour voir la preuve': r.proofFile ? `${baseUrl}/api/proofs/view/${r.id}` : 'Aucune preuve',
+    'Lien de téléchargement': r.proofFile ? `${baseUrl}/api/proofs/download/${r.id}` : '-',
     'Date clic paiement': r.paymentClickedAt ? new Date(r.paymentClickedAt).toLocaleString('fr-FR') : '-',
     'Notes Administrateur': r.adminNotes || '',
   }));
@@ -976,7 +1157,7 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
         const val = (row as any)[key] ? String((row as any)[key]) : '';
         if (val.length > maxLen) maxLen = val.length;
       });
-      return { wch: Math.min(Math.max(maxLen + 3, 11), 45) };
+      return { wch: Math.min(Math.max(maxLen + 3, 11), 50) };
     });
     ws['!cols'] = colWidths;
   }
@@ -988,6 +1169,7 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
   const total = list.length;
   const confirmed = list.filter((r) => r.status === 'confirmed').length;
   const pending = list.filter((r) => r.status === 'pending_verification').length;
+  const withProof = list.filter((r) => !!r.proofFile).length;
   const withIllness = list.filter((r) => r.hasIllness === 'Oui').length;
 
   const summaryData = [
@@ -998,6 +1180,7 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
     { 'Propriété / Indicateur': 'Total des participants inscrits', 'Valeur': total },
     { 'Propriété / Indicateur': 'Inscriptions Confirmées (Validées)', 'Valeur': confirmed },
     { 'Propriété / Indicateur': 'Inscriptions En Attente de Vérification', 'Valeur': pending },
+    { 'Propriété / Indicateur': 'Dossiers avec Preuve de Paiement Reçue', 'Valeur': withProof },
     { 'Propriété / Indicateur': 'Participants avec Affection Médicale', 'Valeur': withIllness },
   ];
   const summaryWs = XLSX.utils.json_to_sheet(summaryData);
@@ -1012,6 +1195,50 @@ app.get('/api/admin/export-excel', requireAdminAuth, (_req: Request, res: Respon
   res.send(buffer);
 });
 
+// Export JSON (.json) complete with proof metadata, view links, and download links
+app.get('/api/admin/export-json', requireAdminAuth, (req: Request, res: Response) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  const baseUrl = `${protocol}://${host}`;
+  const list = dbService.getRegistrations();
+
+  const exportPayload = {
+    metadata: {
+      event: 'Randonnée Forêt du Banco 2026',
+      edition: 'Édition 2026 - Ministère de la Jeunesse Adventiste',
+      date: 'Dimanche 15 Novembre 2026',
+      lieu: 'Parc National du Banco, Abidjan, Côte d’Ivoire',
+      exportedAt: new Date().toISOString(),
+      totalRegistrations: list.length,
+      confirmedCount: list.filter((r) => r.status === 'confirmed').length,
+      pendingCount: list.filter((r) => r.status === 'pending_verification').length,
+      rejectedCount: list.filter((r) => r.status === 'rejected').length,
+      withProofCount: list.filter((r) => !!r.proofFile).length,
+    },
+    registrations: list.map((r) => ({
+      ...r,
+      proofFile: r.proofFile
+        ? {
+            filename: r.proofFile.filename,
+            originalName: r.proofFile.originalName,
+            mimeType: r.proofFile.mimeType,
+            size: r.proofFile.size,
+            uploadedAt: r.proofFile.uploadedAt,
+            hasDataUrl: !!r.proofFile.dataUrl,
+            dataUrl: r.proofFile.dataUrl || null,
+            viewUrl: `${baseUrl}/api/proofs/view/${r.id}`,
+            downloadUrl: `${baseUrl}/api/proofs/download/${r.id}`,
+          }
+        : null,
+    })),
+  };
+
+  const filename = `inscriptions-randonnee-2026-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(JSON.stringify(exportPayload, null, 2));
+});
+
 // Friendly aliases for simplified form links
 app.get(['/inscription', '/banco2026', '/banco', '/formulaire'], (_req: Request, _res: Response, next) => {
   next();
@@ -1021,6 +1248,13 @@ app.get(['/inscription', '/banco2026', '/banco', '/formulaire'], (_req: Request,
 // VITE OR STATIC SERVING
 // ==========================================
 async function startServer() {
+  // Initialize Cloud Firestore persistence in background
+  dbService.initCloudPersistence().then((res) => {
+    console.log('[Cloud Persistence] Initial boot sync:', res.message, `(${res.registrationCount} inscriptions actives)`);
+  }).catch((err) => {
+    console.warn('[Cloud Persistence] Initial boot sync warning:', err);
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

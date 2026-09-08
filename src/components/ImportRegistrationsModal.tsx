@@ -22,6 +22,7 @@ import {
   downloadSampleJsonFile,
 } from '../utils/importParsers.js';
 import { saveToClientVault } from '../utils/persistenceVault.js';
+import { safeFetch } from '../utils/api.js';
 
 interface ImportRegistrationsModalProps {
   isOpen: boolean;
@@ -144,7 +145,7 @@ export const ImportRegistrationsModal: React.FC<ImportRegistrationsModalProps> =
         return item;
       });
 
-      const res = await fetch('/api/admin/registrations/batch-import', {
+      const res = await safeFetch('/api/admin/registrations/batch-import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -157,6 +158,7 @@ export const ImportRegistrationsModal: React.FC<ImportRegistrationsModalProps> =
             updateDuplicates,
           },
         }),
+        retries: 2,
       });
 
       const data = await res.json();

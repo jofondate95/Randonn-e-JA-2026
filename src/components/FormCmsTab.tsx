@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { FormConfig, FormClubOption, FormCustomField, DEFAULT_OFFICIAL_DISTRICTS } from '../types.js';
 import { FormLivePreview } from './FormLivePreview.js';
+import { safeFetch } from '../utils/api.js';
 import {
   THEME_PRESETS,
   CURATED_BANNER_IMAGES,
@@ -164,13 +165,14 @@ export const FormCmsTab: React.FC<FormCmsTabProps> = ({
     setSaveError(null);
     setSaveSuccessMsg(null);
     try {
-      const res = await fetch('/api/admin/form-config', {
+      const res = await safeFetch('/api/admin/form-config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(config),
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) {
@@ -200,12 +202,13 @@ export const FormCmsTab: React.FC<FormCmsTabProps> = ({
       const formData = new FormData();
       formData.append('image', file);
 
-      const res = await fetch('/api/admin/upload-banner', {
+      const res = await safeFetch('/api/admin/upload-banner', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
         },
         body: formData,
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok || !data.url) {

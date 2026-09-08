@@ -67,6 +67,12 @@ export function exportRegistrationsToExcel(
     'Taille fichier preuve': r.proofFile
       ? `${(r.proofFile.size / 1024).toFixed(1)} Ko`
       : '-',
+    'Lien pour voir la preuve': r.proofFile
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/proofs/view/${r.id}`
+      : 'Aucune preuve',
+    'Lien de téléchargement direct': r.proofFile
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/proofs/download/${r.id}`
+      : '-',
     'Clic Lien Paiement': r.paymentClicked ? 'OUI' : 'NON',
     'Date clic paiement': r.paymentClickedAt
       ? new Date(r.paymentClickedAt).toLocaleString('fr-FR')
@@ -137,7 +143,8 @@ export function exportRegistrationsToPDF(
   records: RegistrationRecord[],
   filterInfo?: ExportFilterInfo,
   adminEmail?: string,
-  fileName?: string
+  fileName?: string,
+  options?: { includeProofGallery?: boolean }
 ): void {
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -295,6 +302,17 @@ export function exportRegistrationsToPDF(
       9: { cellWidth: 24, halign: 'center', fontStyle: 'bold' },
       10: { cellWidth: 20, halign: 'center' },
     },
+    didDrawCell: (data) => {
+      // Make proof cell clickable if proof exists
+      if (data.section === 'body' && data.column.index === 10) {
+        const rec = records[data.row.index];
+        if (rec && rec.proofFile) {
+          const origin = typeof window !== 'undefined' ? window.location.origin : '';
+          const proofUrl = `${origin}/api/proofs/view/${rec.id}`;
+          doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: proofUrl });
+        }
+      }
+    },
     didParseCell: (data) => {
       // Colorize Status column
       if (data.section === 'body' && data.column.index === 9) {
@@ -312,6 +330,14 @@ export function exportRegistrationsToPDF(
         const val = String(data.cell.raw);
         if (val.startsWith('OUI')) {
           data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+      // Highlight proof column if received
+      if (data.section === 'body' && data.column.index === 10) {
+        const val = String(data.cell.raw);
+        if (val === 'Preuve reçue') {
+          data.cell.styles.textColor = [210, 105, 30];
           data.cell.styles.fontStyle = 'bold';
         }
       }
@@ -367,6 +393,106 @@ export function exportRegistrationsToPDF(
       doc.setFont('helvetica', 'normal');
       doc.text('(Visa & Cachet Officiel)', 215, sigY + 4);
       doc.line(215, sigY + 11, 280, sigY + 11);
+    }
+  }
+
+  // OPTIONAL ANNEX: Photographic Gallery of all received Payment Proofs
+  if (options?.includeProofGallery) {
+    const recordsWithProof = records.filter(
+      (r) => !!r.proofFile && !!r.proofFile.dataUrl && r.proofFile.dataUrl.startsWith('data:image/')
+    );
+
+    if (recordsWithProof.length > 0) {
+      for (let i = 0; i < recordsWithProof.length; i += 2) {
+        doc.addPage('landscape');
+        const pW = doc.internal.pageSize.getWidth();
+        const pH = doc.internal.pageSize.getHeight();
+
+        // Annex header bar
+        doc.setFillColor(90, 90, 64);
+        doc.rect(0, 0, pW, 16, 'F');
+        doc.setFillColor(210, 105, 30);
+        doc.rect(0, 16, pW, 1.5, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text(
+          'ANNEXE PHOTOGRAPHIQUE OFFICIELLE — PREUVES DE PAIEMENT REÇUES',
+          14,
+          10.5
+        );
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.text(
+          `Planches ${Math.floor(i / 2) + 1} / ${Math.ceil(recordsWithProof.length / 2)} • Événement Forêt du Banco 2026`,
+          pW - 14,
+          10.5,
+          { align: 'right' }
+        );
+
+        // Display up to 2 proofs side-by-side
+        const pair = recordsWithProof.slice(i, i + 2);
+        const cardWidth = (pW - 42) / 2;
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+        pair.forEach((rec, cardIdx) => {
+          const cardX = 14 + cardIdx * (cardWidth + 14);
+          const cardY = 22;
+          const cardH = pH - 34;
+
+          // Card container box
+          doc.setFillColor(252, 250, 247);
+          doc.roundedRect(cardX, cardY, cardWidth, cardH, 2, 2, 'F');
+          doc.setDrawColor(215, 210, 200);
+          doc.setLineWidth(0.3);
+          doc.roundedRect(cardX, cardY, cardWidth, cardH, 2, 2, 'D');
+
+          // Header strip inside card
+          doc.setFillColor(242, 238, 230);
+          doc.roundedRect(cardX + 2, cardY + 2, cardWidth - 4, 18, 1.5, 1.5, 'F');
+          doc.setTextColor(210, 105, 30);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9);
+          doc.text(`Réf : ${rec.id}`, cardX + 5, cardY + 8);
+
+          doc.setTextColor(45, 45, 42);
+          doc.setFontSize(8);
+          doc.text(`${rec.fullName} • ${rec.contact}`, cardX + 5, cardY + 14);
+
+          // Details line
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7);
+          doc.setTextColor(100, 100, 95);
+          doc.text(
+            `Club : ${rec.club || '-'} | Église : ${rec.church || '-'} | N° Wave : ${rec.transactionPhone || rec.contact}`,
+            cardX + 5,
+            cardY + 23
+          );
+
+          // Image render
+          if (rec.proofFile?.dataUrl) {
+            try {
+              const maxImgW = cardWidth - 10;
+              const maxImgH = cardH - 38;
+              const imgX = cardX + 5;
+              const imgY = cardY + 26;
+
+              doc.addImage(rec.proofFile.dataUrl, imgX, imgY, maxImgW, maxImgH);
+
+              // Clickable link below image
+              const proofUrl = `${origin}/api/proofs/view/${rec.id}`;
+              doc.setTextColor(210, 105, 30);
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(6.5);
+              doc.textWithLink('→ Ouvrir l’original haute définition dans le navigateur', cardX + 5, cardY + cardH - 3, {
+                url: proofUrl,
+              });
+            } catch (err) {
+              console.warn('Error embedding proof image in gallery:', err);
+            }
+          }
+        });
+      }
     }
   }
 
@@ -471,6 +597,12 @@ export function exportSingleParticipantPDF(
       'Fichier de preuve joint :',
       r.proofFile ? `${r.proofFile.originalName} (${Math.round(r.proofFile.size / 1024)} Ko)` : 'Non fourni',
     ],
+    [
+      'Lien web pour voir la preuve :',
+      r.proofFile
+        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/proofs/view/${r.id}`
+        : 'Aucune preuve',
+    ],
     ['Notes Administratives :', r.adminNotes || 'Dossier complet conforme'],
   ];
 
@@ -479,17 +611,25 @@ export function exportSingleParticipantPDF(
     body: details,
     theme: 'plain',
     columnStyles: {
-      0: { fontStyle: 'bold', cellWidth: 55, textColor: [90, 90, 64], fontSize: 9 },
-      1: { cellWidth: pageWidth - 36 - 55, textColor: [45, 45, 42], fontSize: 9 },
+      0: { fontStyle: 'bold', cellWidth: 55, textColor: [90, 90, 64], fontSize: 8.5 },
+      1: { cellWidth: pageWidth - 36 - 55, textColor: [45, 45, 42], fontSize: 8.5 },
     },
     bodyStyles: {
-      cellPadding: 2.8,
+      cellPadding: 2.6,
+    },
+    didDrawCell: (data) => {
+      // Make the proof link clickable
+      if (data.row.index === 11 && data.column.index === 1 && r.proofFile) {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        const proofUrl = `${origin}/api/proofs/view/${r.id}`;
+        doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, { url: proofUrl });
+      }
     },
     margin: { left: 18, right: 18 },
   });
 
   // Verification & security notice
-  const endY = (doc as any).lastAutoTable.finalY + 12;
+  const endY = (doc as any).lastAutoTable.finalY + 10;
 
   doc.setFillColor(248, 246, 241);
   doc.roundedRect(18, endY, pageWidth - 36, 40, 2, 2, 'F');
@@ -526,7 +666,7 @@ export function exportSingleParticipantPDF(
   );
 
   // Signatures at bottom
-  const sigY = endY + 54;
+  const sigY = endY + 52;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(90, 90, 64);
@@ -536,7 +676,7 @@ export function exportSingleParticipantPDF(
   doc.text('Visa & Cachet Trésorerie :', pageWidth - 80, sigY);
   doc.line(pageWidth - 80, sigY + 14, pageWidth - 24, sigY + 14);
 
-  // Footer note
+  // Footer note on page 1
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(7);
   doc.setTextColor(150, 150, 145);
@@ -547,5 +687,120 @@ export function exportSingleParticipantPDF(
     { align: 'center' }
   );
 
+  // PAGE 2: Payment Proof Image Annex (if proof image exists)
+  if (r.proofFile && r.proofFile.dataUrl && r.proofFile.dataUrl.startsWith('data:image/')) {
+    doc.addPage('portrait');
+    const pW = doc.internal.pageSize.getWidth();
+    const pH = doc.internal.pageSize.getHeight();
+
+    // Top Header Bar
+    doc.setFillColor(90, 90, 64);
+    doc.rect(0, 0, pW, 26, 'F');
+    doc.setFillColor(210, 105, 30);
+    doc.rect(0, 26, pW, 2, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('PREUVE DE PAIEMENT REÇUE — JUSTIFICATIF OFFICIEL', pW / 2, 12, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(
+      `Référence : ${r.id} • Participant : ${r.fullName} • Fichier : ${r.proofFile.originalName}`,
+      pW / 2,
+      19,
+      { align: 'center' }
+    );
+
+    try {
+      const maxW = pW - 36;
+      const maxH = pH - 75;
+      const imgX = 18;
+      const imgY = 36;
+
+      // Draw subtle framing box
+      doc.setFillColor(252, 250, 247);
+      doc.roundedRect(imgX - 2, imgY - 2, maxW + 4, maxH + 4, 2, 2, 'F');
+      doc.setDrawColor(210, 205, 195);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(imgX - 2, imgY - 2, maxW + 4, maxH + 4, 2, 2, 'D');
+
+      doc.addImage(r.proofFile.dataUrl, imgX, imgY, maxW, maxH);
+
+      // Direct clickable link
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const proofUrl = `${origin}/api/proofs/view/${r.id}`;
+      doc.setTextColor(210, 105, 30);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.textWithLink('→ Cliquer ici pour ouvrir la preuve haute définition dans le navigateur', pW / 2, pH - 22, {
+        align: 'center',
+        url: proofUrl,
+      });
+
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(140, 140, 135);
+      doc.text(`URL de consultation directe : ${proofUrl}`, pW / 2, pH - 16, { align: 'center' });
+    } catch (imgErr) {
+      console.warn('Could not embed proof image into PDF:', imgErr);
+    }
+  }
+
   doc.save(`recu-inscription-${r.id}.pdf`);
+}
+
+/**
+ * JSON EXPORT (.json)
+ * Generates and downloads a complete structured JSON file with all registrations and direct proof links.
+ */
+export function exportRegistrationsToJSON(
+  records: RegistrationRecord[],
+  fileName?: string
+): void {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const finalFileName =
+    fileName || `inscriptions-randonnee-2026-${new Date().toISOString().slice(0, 10)}.json`;
+
+  const payload = {
+    metadata: {
+      event: 'Randonnée Forêt du Banco 2026',
+      edition: 'Édition 2026 - Ministère de la Jeunesse Adventiste',
+      date: 'Dimanche 15 Novembre 2026',
+      lieu: 'Parc National du Banco, Abidjan, Côte d’Ivoire',
+      exportedAt: new Date().toISOString(),
+      totalRegistrations: records.length,
+      confirmedCount: records.filter((r) => r.status === 'confirmed').length,
+      pendingCount: records.filter((r) => r.status === 'pending_verification').length,
+      rejectedCount: records.filter((r) => r.status === 'rejected').length,
+      withProofCount: records.filter((r) => !!r.proofFile).length,
+    },
+    registrations: records.map((r) => ({
+      ...r,
+      proofFile: r.proofFile
+        ? {
+            filename: r.proofFile.filename,
+            originalName: r.proofFile.originalName,
+            mimeType: r.proofFile.mimeType,
+            size: r.proofFile.size,
+            uploadedAt: r.proofFile.uploadedAt,
+            hasDataUrl: !!r.proofFile.dataUrl,
+            dataUrl: r.proofFile.dataUrl || null,
+            viewUrl: `${origin}/api/proofs/view/${r.id}`,
+            downloadUrl: `${origin}/api/proofs/download/${r.id}`,
+          }
+        : null,
+    })),
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json;charset=utf-8;',
+  });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = finalFileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }

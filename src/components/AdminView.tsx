@@ -46,6 +46,7 @@ import {
   exportRegistrationsToExcel,
   exportRegistrationsToPDF,
   exportSingleParticipantPDF,
+  exportRegistrationsToJSON,
 } from '../utils/exportUtils.js';
 import { ShareModal } from './ShareModal.js';
 import { FormCmsTab } from './FormCmsTab.js';
@@ -59,6 +60,7 @@ import {
   removeFromClientVault,
   clearClientVault,
 } from '../utils/persistenceVault.js';
+import { safeFetch } from '../utils/api.js';
 
 interface AdminViewProps {
   token: string;
@@ -98,6 +100,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportScope, setExportScope] = useState<'filtered' | 'all'>('filtered');
   const [exporting, setExporting] = useState<string | null>(null);
+  const [includePdfProofGallery, setIncludePdfProofGallery] = useState(true);
 
   // Proof viewer modal
   const [viewingProof, setViewingProof] = useState<{
@@ -128,6 +131,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Persistent Vault Safeguard state
   const [vaultRecoveryCount, setVaultRecoveryCount] = useState<number>(0);
   const [isAutoRecovering, setIsAutoRecovering] = useState<boolean>(false);
+
+  // Cloud Firestore synchronization state
+  const [cloudSyncing, setCloudSyncing] = useState<boolean>(false);
 
   // Feedback notifications
   const [actionSuccessMsg, setActionSuccessMsg] = useState<string | null>(null);
@@ -186,13 +192,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
         payload.password = editAdminPassword.trim();
       }
 
-      const res = await fetch(`/api/admin/accounts/${editingAdmin.id}`, {
+      const res = await safeFetch(`/api/admin/accounts/${editingAdmin.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur lors de la mise à jour de l'administrateur.");
@@ -231,7 +238,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsSyncing(true);
     setSyncFeedback(null);
     try {
-      const res = await fetch('/api/admin/sync-from-production', {
+      const res = await safeFetch('/api/admin/sync-from-production', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,6 +250,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           prodPassword: syncProdPassword,
           secondAdminPassword: syncSecondAdminPassword,
         }),
+        retries: 1,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la synchronisation.');
@@ -262,8 +270,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setIsDownloadingBackup(true);
     setBackupRestoreMsg(null);
     try {
-      const res = await fetch('/api/admin/backup-download', {
+      const res = await safeFetch('/api/admin/backup-download', {
         headers: { Authorization: `Bearer ${token}` },
+        retries: 2,
       });
       if (!res.ok) throw new Error('Échec du téléchargement');
       const blob = await res.blob();
@@ -296,13 +305,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
     try {
       const text = await file.text();
       const backupData = JSON.parse(text);
-      const res = await fetch('/api/admin/backup-restore', {
+      const res = await safeFetch('/api/admin/backup-restore', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ backupData }),
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur de restauration');
@@ -329,8 +339,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
       if (districtFilter !== 'all') params.set('district', districtFilter);
       if (activeTab === 'relances') params.set('paymentClickedOnly', 'true');
 
-      const res = await fetch(`/api/admin/registrations?${params.toString()}`, {
+      const res = await safeFetch(`/api/admin/registrations?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
+        retries: 2,
       });
 
       if (res.status === 401) {
@@ -356,7 +367,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         }
       }
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Impossible de joindre le serveur. Nouvelle tentative dans un instant...');
     } finally {
       setLoading(false);
     }
@@ -365,23 +376,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Fetch Settings
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/settings', {
+      const res = await safeFetch('/api/admin/settings', {
         headers: { Authorization: `Bearer ${token}` },
+        retries: 2,
       });
       if (res.ok) {
         const data = await res.json();
         setSettings(data.settings);
       }
     } catch (err) {
-      console.error(err);
+      console.warn('Settings fetch warning:', err);
     }
   }, [token]);
 
   // Fetch Admins & Quota
   const fetchAdmins = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/list', {
+      const res = await safeFetch('/api/admin/list', {
         headers: { Authorization: `Bearer ${token}` },
+        retries: 2,
       });
       if (res.ok) {
         const data = await res.json();
@@ -416,13 +429,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
     e.preventDefault();
     if (!settings) return;
     try {
-      const res = await fetch('/api/admin/settings', {
+      const res = await safeFetch('/api/admin/settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(settings),
+        retries: 2,
       });
       const data = await res.json();
       if (res.ok && data.settings) {
@@ -448,11 +462,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleDeleteRegistration = async (id: string) => {
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/admin/registrations/${id}`, {
+      const res = await safeFetch(`/api/admin/registrations/${id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
@@ -480,11 +495,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleResetAll = async () => {
     setIsResetting(true);
     try {
-      const res = await fetch('/api/admin/registrations/reset', {
+      const res = await safeFetch('/api/admin/registrations/reset', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la réinitialisation');
@@ -511,13 +527,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleSaveStatus = async () => {
     if (!editingRegistration) return;
     try {
-      const res = await fetch(`/api/admin/registrations/${editingRegistration.id}`, {
+      const res = await safeFetch(`/api/admin/registrations/${editingRegistration.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ status: newStatus, adminNotes }),
+        retries: 2,
       });
       if (res.ok) {
         setEditingRegistration(null);
@@ -537,13 +554,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
       return;
     }
     try {
-      const res = await fetch('/api/admin/create', {
+      const res = await safeFetch('/api/admin/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ email: newAdminEmail, tempPassword: newAdminTempPassword }),
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la création');
@@ -563,11 +581,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
     setDeletingAdminId(adminId);
     try {
-      const res = await fetch(`/api/admin/${adminId}`, {
+      const res = await safeFetch(`/api/admin/${adminId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        retries: 2,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
@@ -586,7 +605,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     e.preventDefault();
     setPwdMsg(null);
     try {
-      const res = await fetch('/api/admin/change-password', {
+      const res = await safeFetch('/api/admin/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -617,8 +636,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
       let dataToExport = registrations;
 
       if (scope === 'all') {
-        const res = await fetch('/api/admin/registrations', {
+        const res = await safeFetch('/api/admin/registrations', {
           headers: { Authorization: `Bearer ${token}` },
+          retries: 2,
         });
         if (res.ok) {
           const data = await res.json();
@@ -652,8 +672,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
       let dataToExport = registrations;
 
       if (scope === 'all') {
-        const res = await fetch('/api/admin/registrations', {
+        const res = await safeFetch('/api/admin/registrations', {
           headers: { Authorization: `Bearer ${token}` },
+          retries: 2,
         });
         if (res.ok) {
           const data = await res.json();
@@ -670,11 +691,40 @@ export const AdminView: React.FC<AdminViewProps> = ({
         filteredCount: dataToExport.length,
       };
 
-      exportRegistrationsToPDF(dataToExport, filterInfo, currentUser.email);
+      exportRegistrationsToPDF(dataToExport, filterInfo, currentUser.email, undefined, {
+        includeProofGallery: includePdfProofGallery,
+      });
       setShowExportModal(false);
     } catch (err) {
       console.error('Erreur export PDF:', err);
       alert("Une erreur est survenue lors de la génération du registre PDF.");
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  // Export Complete JSON file with registrations metadata & direct proof links
+  const handleExportJSON = async (scope: 'filtered' | 'all' = exportScope) => {
+    try {
+      setExporting('json');
+      let dataToExport = registrations;
+
+      if (scope === 'all') {
+        const res = await safeFetch('/api/admin/registrations', {
+          headers: { Authorization: `Bearer ${token}` },
+          retries: 2,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          dataToExport = data.registrations || [];
+        }
+      }
+
+      exportRegistrationsToJSON(dataToExport);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error('Erreur export JSON:', err);
+      alert("Une erreur est survenue lors de la création du fichier JSON.");
     } finally {
       setExporting(null);
     }
@@ -700,6 +750,33 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  // Trigger on-demand Cloud Firestore sync
+  const handleSyncCloud = async () => {
+    setCloudSyncing(true);
+    try {
+      const res = await safeFetch('/api/admin/cloud-sync', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        retries: 2,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionSuccessMsg(`☁️ Google Cloud Firestore synchronisé ! ${data.count} inscription(s) sécurisée(s) de façon permanente.`);
+        setTimeout(() => setActionSuccessMsg(null), 5000);
+        fetchRegistrations();
+        fetchSettings();
+      } else {
+        alert(data.error || 'Erreur lors de la synchronisation Cloud');
+      }
+    } catch (err: any) {
+      alert('Erreur : ' + err.message);
+    } finally {
+      setCloudSyncing(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-[#383827]/60 backdrop-blur-xs flex flex-col overflow-hidden">
       <div className="flex-1 flex flex-col bg-[#f5f2ed] overflow-hidden">
@@ -720,8 +797,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           </div>
 
+          {/* Cloud Firestore Persistence Status Indicator */}
+          <div className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs font-semibold shadow-xs">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span>Cloud Firestore : Base Permanente Active</span>
+          </div>
+
           {/* Quick Action Navigation */}
           <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={handleSyncCloud}
+              disabled={cloudSyncing}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-800 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Synchroniser immédiatement avec Google Cloud Firestore (permanent)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-300 ${cloudSyncing ? 'animate-spin' : ''}`} />
+              <span>{cloudSyncing ? 'Sync Cloud...' : 'Sync Cloud'}</span>
+            </button>
+
             <button
               onClick={() => setShowShareModal(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#D2691E] hover:bg-[#b85816] text-white shadow-xs transition-all cursor-pointer"
@@ -1373,16 +1469,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               </form>
 
-              {/* Permanent Archiving & Complete JSON Backup */}
-              <div className="mt-8 pt-6 border-t border-amber-200 bg-amber-50/60 rounded-2xl p-5 border">
+              {/* Google Cloud Firestore Permanent Persistence */}
+              <div className="mt-8 pt-6 border-t border-emerald-300 bg-emerald-50/80 rounded-2xl p-5 border border-emerald-200">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
-                      <Database className="w-4 h-4 text-amber-700 shrink-0" />
-                      <span>Archivage Permanent & Sauvegarde pour Toujours</span>
-                    </h4>
-                    <p className="text-xs text-amber-900/80 mt-1 max-w-xl">
-                      Tous les enregistrements des administrations et participants sont automatiquement conservés sur le disque de façon permanente (redondance triple: fichier principal, sauvegarde synchrone et archive permanente). Vous pouvez aussi exporter ou restaurer manuellement l'archive complète.
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                      <h4 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
+                        <Database className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <span>Base Google Cloud Firestore Permanente (Sauvegarde à vie)</span>
+                      </h4>
+                    </div>
+                    <p className="text-xs text-emerald-900/90 mt-1.5 max-w-xl leading-relaxed">
+                      Chaque inscription, chaque preuve de paiement Wave et chaque modification de formulaire ou de consigne sont automatiquement écrites dans la base <strong>Google Cloud Firestore</strong> (ID : <code>balmy-lambda-ptn3v</code>).
+                      Vos données ne seront plus jamais réinitialisées ni perdues après 24h.
                     </p>
                     {backupRestoreMsg && (
                       <div className={`mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg inline-block ${backupRestoreMsg.isError ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
@@ -1393,28 +1493,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSyncModalOpen(true)}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-sky-700 hover:bg-sky-800 shadow-xs cursor-pointer transition-colors"
-                      title="Importer les données depuis https://randonnee-ja-2026.ai.studio"
+                      onClick={handleSyncCloud}
+                      disabled={cloudSyncing}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-800 hover:bg-emerald-700 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                      title="Forcer la vérification et synchronisation Cloud Firestore"
                     >
-                      <RefreshCw className="w-3.5 h-3.5 text-sky-200" />
-                      <span>Synchroniser depuis le site en ligne</span>
+                      <RefreshCw className={`w-3.5 h-3.5 text-emerald-300 ${cloudSyncing ? 'animate-spin' : ''}`} />
+                      <span>{cloudSyncing ? 'Synchronisation...' : 'Synchroniser avec Cloud Firestore'}</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={handleDownloadPermanentBackup}
                       disabled={isDownloadingBackup}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-800 hover:bg-amber-900 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-stone-800 bg-white hover:bg-stone-100 border border-stone-300 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>{isDownloadingBackup ? 'Téléchargement...' : 'Télécharger l\'archive JSON'}</span>
+                      <span>{isDownloadingBackup ? 'Téléchargement...' : 'Exporter archive JSON'}</span>
                     </button>
 
                     {currentUser.role === 'superadmin' && (
-                      <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-amber-950 bg-amber-200/80 hover:bg-amber-300 shadow-xs cursor-pointer transition-colors">
+                      <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-stone-800 bg-white hover:bg-stone-100 border border-stone-300 shadow-xs cursor-pointer transition-colors">
                         <UploadCloud className="w-3.5 h-3.5" />
-                        <span>{isRestoringBackup ? 'Restauration...' : 'Restaurer une archive'}</span>
+                        <span>{isRestoringBackup ? 'Restauration...' : 'Importer archive'}</span>
                         <input
                           type="file"
                           accept=".json"
@@ -2059,7 +2160,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         <span className="text-[9px] bg-emerald-200/80 text-emerald-900 px-1.5 py-0.2 rounded font-mono font-bold">Recommandé</span>
                       </div>
                       <p className="text-[11px] text-emerald-800/80 mt-0.5 leading-snug">
-                        2 feuilles ordonnées : registre nominatif avec colonnes auto-ajustées + feuille de synthèse officielle des effectifs et urgences.
+                        2 feuilles ordonnées : registre nominatif avec colonnes auto-ajustées + feuille de synthèse. <strong>Inclut les liens directs cliquables vers chaque preuve de paiement.</strong>
                       </p>
                     </div>
                   </div>
@@ -2073,27 +2174,63 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
 
                 {/* PDF Option */}
-                <div className="p-3.5 rounded-2xl border border-[#5A5A40]/30 bg-[#f5f2ed]/70 hover:bg-[#f5f2ed] transition-all flex items-center justify-between gap-3">
+                <div className="p-3.5 rounded-2xl border border-[#5A5A40]/30 bg-[#f5f2ed]/70 hover:bg-[#f5f2ed] transition-all flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-[#5A5A40] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                        <FileText className="w-5 h-5 text-[#D2691E]" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                          <span>Registre PDF Officiel d'Émargement (Paysage A4)</span>
+                          <span className="text-[9px] bg-[#D2691E]/20 text-[#D2691E] border border-[#D2691E]/30 px-1.5 py-0.2 rounded font-mono font-bold">Contrôle Banco</span>
+                        </div>
+                        <p className="text-[11px] text-stone-600 mt-0.5 leading-snug">
+                          Mise en page officielle pour impression physique, contrôle d'accès au Banco, liens cliquables et cadre signatures.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleExportPDF(exportScope)}
+                      disabled={exporting !== null}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-[#5A5A40] hover:bg-[#484833] text-white shadow-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                    >
+                      {exporting === 'pdf' ? 'Génération...' : 'Générer PDF'}
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 pt-2 border-t border-[#5A5A40]/15 text-[11px] text-[#5A5A40] font-semibold cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={includePdfProofGallery}
+                      onChange={(e) => setIncludePdfProofGallery(e.target.checked)}
+                      className="rounded text-[#D2691E] focus:ring-[#D2691E]"
+                    />
+                    <span>Inclure l'annexe photographique des preuves de paiement (Planches haute définition en fin de document)</span>
+                  </label>
+                </div>
+
+                {/* JSON Option */}
+                <div className="p-3.5 rounded-2xl border border-sky-200 bg-sky-50/40 hover:bg-sky-50/80 transition-all flex items-center justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-[#5A5A40] text-white flex items-center justify-center shrink-0 shadow-2xs">
-                      <FileText className="w-5 h-5 text-[#D2691E]" />
+                    <div className="w-9 h-9 rounded-xl bg-sky-800 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                      <Database className="w-5 h-5 text-sky-200" />
                     </div>
                     <div>
-                      <div className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
-                        <span>Registre PDF Officiel d'Émargement (Paysage A4)</span>
-                        <span className="text-[9px] bg-[#D2691E]/20 text-[#D2691E] border border-[#D2691E]/30 px-1.5 py-0.2 rounded font-mono font-bold">Contrôle Banco</span>
+                      <div className="text-xs font-bold text-sky-950 flex items-center gap-1.5">
+                        <span>Sauvegarde JSON Structurée (.json)</span>
+                        <span className="text-[9px] bg-sky-200/80 text-sky-900 px-1.5 py-0.2 rounded font-mono font-bold">Complet</span>
                       </div>
-                      <p className="text-[11px] text-stone-600 mt-0.5 leading-snug">
-                        Mise en page officielle paysage pour impression physique, contrôle à l'entrée du Banco, alertes santé rouges et cadre signatures.
+                      <p className="text-[11px] text-sky-800/80 mt-0.5 leading-snug">
+                        Export exhaustif avec métadonnées, détails des inscrits, et URLs directes de consultation et téléchargement des preuves.
                       </p>
                     </div>
                   </div>
                   <button
-                    onClick={() => handleExportPDF(exportScope)}
+                    onClick={() => handleExportJSON(exportScope)}
                     disabled={exporting !== null}
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#5A5A40] hover:bg-[#484833] text-white shadow-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-sky-800 hover:bg-sky-900 text-white shadow-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
                   >
-                    {exporting === 'pdf' ? 'Génération...' : 'Générer PDF'}
+                    {exporting === 'json' ? 'Export...' : 'Télécharger JSON'}
                   </button>
                 </div>
 
@@ -2106,7 +2243,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <div>
                       <div className="text-xs font-bold text-stone-800">Fichier CSV (Standard délimité)</div>
                       <p className="text-[11px] text-stone-500 mt-0.5">
-                        Export brut avec séparateur point-virgule et encodage UTF-8 (BOM).
+                        Export universel avec séparateur point-virgule et colonnes dédiées avec liens vers les preuves.
                       </p>
                     </div>
                   </div>

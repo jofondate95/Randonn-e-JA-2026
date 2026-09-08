@@ -46,6 +46,7 @@ export interface RegistrationRecord extends RegistrationFormData {
     mimeType: string;
     size: number;
     uploadedAt: string;
+    dataUrl?: string;
   } | null;
   status: RegistrationStatus;
   adminNotes?: string;
